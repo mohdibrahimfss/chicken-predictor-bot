@@ -1,27 +1,15 @@
 import os
-import logging
 from flask import Flask, request, jsonify
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
-from apscheduler.schedulers.background import BackgroundScheduler
-import json
 import random
 from datetime import datetime
-import asyncio
 
 # Environment variables
 BOT_TOKEN = os.environ.get('BOT_TOKEN')
 ADMIN_CHAT_ID = os.environ.get('ADMIN_CHAT_ID')
 VERCEL_URL = os.environ.get('VERCEL_URL')
 AFFILIATE_LINK = os.environ.get('AFFILIATE_LINK', 'https://mostbet-king.com/5w4F')
-
-# Check required variables
-if not BOT_TOKEN:
-    raise ValueError("❌ BOT_TOKEN environment variable is required!")
-if not ADMIN_CHAT_ID:
-    raise ValueError("❌ ADMIN_CHAT_ID environment variable is required!")
-
-print("✅ Environment variables loaded successfully!")
 
 app = Flask(__name__)
 
@@ -30,7 +18,7 @@ users = {}
 stats = {'total': 0, 'registered': 0, 'deposited': 0}
 postback_data = {'registrations': {}, 'deposits': {}, 'approved_deposits': {}}
 
-# ALL 5 LANGUAGES - EXACT TEXT
+# ALL 5 LANGUAGES - COMPLETE TEXT
 languages = {
     'en': {
         'name': "English", 'flag': "🇺🇸",
@@ -224,7 +212,7 @@ After successful registration, come back and enter your Player ID.""",
     }
 }
 
-# ALL PREDICTION IMAGES
+# ALL PREDICTION IMAGES - COMPLETE
 prediction_images = {
     'easy': [
         {'url': "https://i.postimg.cc/dQS5pr0N/IMG-20251020-095836-056.jpg", 'accuracy': "85%"},
@@ -297,8 +285,6 @@ def lwin_postback():
     status = request.args.get('status')
     amount = request.args.get('amount', 0)
     
-    print(f'📥 1Win Postback: player_id={player_id}, status={status}, amount={amount}')
-    
     if status == 'registration':
         postback_data['registrations'][player_id] = {
             'player_id': player_id,
@@ -306,7 +292,6 @@ def lwin_postback():
             'deposited': False,
             'registered_at': datetime.now().isoformat()
         }
-        print(f'✅ Registration recorded: {player_id}')
     elif status == 'fdp':
         postback_data['deposits'][player_id] = {
             'player_id': player_id,
@@ -318,7 +303,6 @@ def lwin_postback():
         if player_id in postback_data['registrations']:
             postback_data['registrations'][player_id]['deposited'] = True
             postback_data['registrations'][player_id]['deposit_amount'] = amount
-        print(f'💰 Deposit recorded: {player_id}, Amount: {amount}')
     elif status == 'fd_approved':
         postback_data['approved_deposits'][player_id] = {
             'player_id': player_id,
@@ -326,7 +310,6 @@ def lwin_postback():
             'amount': amount,
             'approved_at': datetime.now().isoformat()
         }
-        print(f'🎉 Deposit approved: {player_id}, Amount: {amount}')
     
     return jsonify({'success': True, 'player_id': player_id, 'status': status})
 
@@ -346,23 +329,7 @@ def verify_player(player_id):
         'approved_data': approved
     }
     
-    print(f'🔍 Player verification: {response}')
     return jsonify(response)
-
-# Admin notification - SYNC VERSION
-def send_admin_notification_sync(message):
-    try:
-        # Run async function in sync context
-        async def send_async():
-            await application.bot.send_message(
-                chat_id=ADMIN_CHAT_ID,
-                text=f"🤖 BOT NOTIFICATION\n{message}\n\n📊 STATS:\nTotal Users: {stats['total']}\nRegistered: {stats['registered']}\nDeposited: {stats['deposited']}"
-            )
-        
-        # Run the async function
-        asyncio.run(send_async())
-    except Exception as e:
-        print(f'Admin notification failed: {e}')
 
 # Start command
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -381,10 +348,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             'last_active': datetime.now().isoformat()
         }
         stats['total'] += 1
-        # Use sync version for admin notification
-        send_admin_notification_sync(f"🆕 NEW USER STARTED\nUser: {user_name}\nID: {user_id}\nTotal Users: {stats['total']}")
-    else:
-        users[user_id]['last_active'] = datetime.now().isoformat()
     
     user = users[user_id]
     lang = user['language']
@@ -455,7 +418,6 @@ async def handle_player_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if player_id.isdigit():
         user['player_id'] = player_id
         
-        # Send checking message
         checking_msg = await update.message.reply_text(
             languages[lang]['checking']
         )
@@ -466,7 +428,6 @@ async def handle_player_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
             deposit = postback_data['deposits'].get(player_id)
             approved = postback_data['approved_deposits'].get(player_id)
             
-            # Delete checking message
             await checking_msg.delete()
             
             if registration and deposit:
@@ -476,7 +437,6 @@ async def handle_player_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     user['deposited'] = True
                     stats['registered'] += 1
                     stats['deposited'] += 1
-                    send_admin_notification_sync(f"✅ USER REGISTERED & DEPOSITED\nUser ID: {user_id}\nPlayer ID: {player_id}\nAmount: {deposit.get('amount', 'N/A')}")
                 
                 keyboard = [
                     [InlineKeyboardButton("🎯 Easy", callback_data='mode_easy')],
@@ -496,7 +456,6 @@ async def handle_player_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 if not user['registered']:
                     user['registered'] = True
                     stats['registered'] += 1
-                    send_admin_notification_sync(f"✅ USER REGISTERED\nUser ID: {user_id}\nPlayer ID: {player_id}")
                 
                 keyboard = [
                     [InlineKeyboardButton("💳 Deposit", url=AFFILIATE_LINK)],
@@ -553,7 +512,6 @@ async def send_prediction(chat_id, user_id, mode, step):
             reply_markup=reply_markup
         )
     except Exception as e:
-        # Fallback if image fails
         await application.bot.send_message(
             chat_id=chat_id,
             text=f"🎯 {mode.upper()} MODE\n\n👆 BET 👆\n\n(\"CASH OUT\" at this value or before)\nACCURACY:- {random_image['accuracy']}\n\nStep: {step}/20",
@@ -618,33 +576,6 @@ async def handle_game_mode(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data == 'try_tomorrow':
         await query.message.reply_text("⏰ Come back tomorrow for more predictions!")
 
-# Daily motivational messages - SYNC VERSION
-def send_daily_messages():
-    messages = {
-        'en': "You're missing yours chance to win big /start to get Prediction now",
-        'hi': "आप बड़ी जीत का मौका गंवा रहे हैं /start से अभी भविष्यवाणी प्राप्त करें",
-        'bn': "আপনি বড় জয়ের সুযোগ হারাচ্ছেন /start দিয়ে এখনই ভবিষ্যদ্বাণী পান",
-        'ur': "آپ بڑی جیت کا موقع کھو رہے ہیں /start سے ابھی پیشن گوئی حاصل کریں",
-        'ne': "तपाईं ठूलो जितको अवसर गुमाउँदै हुनुहुन्छ /start ले अहिले भविष्यवाणी प्राप्त गर्नुहोस्"
-    }
-    
-    for user_id in list(users.keys()):
-        try:
-            lang = users[user_id]['language']
-            # Run async in sync context
-            async def send_msg():
-                await application.bot.send_message(chat_id=user_id, text=messages.get(lang, messages['en']))
-            
-            asyncio.run(send_msg())
-        except Exception as e:
-            # User might have blocked the bot
-            del users[user_id]
-
-# Setup scheduler
-scheduler = BackgroundScheduler()
-scheduler.add_job(send_daily_messages, 'cron', hour=9, minute=0)
-scheduler.start()
-
 # Stats endpoint
 @app.route('/stats', methods=['GET'])
 def get_stats():
@@ -678,12 +609,11 @@ def home():
         ]
     })
 
-# Webhook setup route - SIMPLE VERSION
+# Webhook setup route
 @app.route('/set-webhook', methods=['GET'])
 def set_webhook():
     try:
         webhook_url = f"{VERCEL_URL}/webhook"
-        # Simple sync approach
         result = application.bot.set_webhook(webhook_url)
         return jsonify({
             'success': True,
@@ -693,31 +623,27 @@ def set_webhook():
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
 
-# Webhook route - SIMPLE VERSION  
+# Webhook route
 @app.route('/webhook', methods=['POST'])
 def webhook():
     try:
         json_data = request.get_json()
         update = Update.de_json(json_data, application.bot)
-        
-        # Use run_async for better performance
         application.run_async(update)
         return 'OK'
     except Exception as e:
-        print(f"Webhook error: {e}")
         return 'ERROR', 500
 
-# Add handlers with run_async
+# Add handlers
 application.add_handler(CommandHandler('start', start, run_async=True))
 application.add_handler(CallbackQueryHandler(handle_language_selection, pattern='^lang_', run_async=True))
 application.add_handler(CallbackQueryHandler(handle_check_registration, pattern='^check_registration$', run_async=True))
 application.add_handler(CallbackQueryHandler(handle_game_mode, pattern='^(mode_|next_|prediction_menu|check_deposit|try_tomorrow)', run_async=True))
 application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_player_id, run_async=True))
 
-# Initialize the application
+# Initialize
 application.initialize()
 
-# Vercel के लिए app instance export करें
+# Vercel के लिए
 if __name__ == '__main__':
-    # Local development के लिए
     app.run(host='0.0.0.0', port=3000, debug=False)

@@ -1,17 +1,16 @@
 import os
-from flask import Flask, request, jsonify
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
 import random
-from datetime import datetime
+from flask import Flask, request, jsonify
 
-# Environment variables - REQUIRED
-BOT_TOKEN = os.environ.get('BOT_TOKEN')
-ADMIN_CHAT_ID = os.environ.get('ADMIN_CHAT_ID')
+app = Flask(__name__)
+
+# Environment variables
+BOT_TOKEN = os.environ.get('BOT_TOKEN', '7830930634:AAHv8kS5m6Z4K9Y6Q6b6b6b6b6b6b6b6b6b6b')
+ADMIN_CHAT_ID = os.environ.get('ADMIN_CHAT_ID', '7830930634')
 VERCEL_URL = os.environ.get('VERCEL_URL', 'https://your-app.vercel.app')
 AFFILIATE_LINK = os.environ.get('AFFILIATE_LINK', 'https://mostbet-king.com/5w4F')
 
-app = Flask(__name__)
+print("✅ Environment variables loaded!")
 
 # Simple storage
 users = {}
@@ -159,9 +158,6 @@ prediction_images = {
     ]
 }
 
-# Initialize bot
-bot_app = Application.builder().token(BOT_TOKEN).build()
-
 # 1Win Postback
 @app.route('/lwin-postback', methods=['GET'])
 def lwin_postback():
@@ -176,190 +172,20 @@ def lwin_postback():
     
     return jsonify({'success': True, 'player_id': player_id, 'status': status})
 
-# Start command
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = str(update.effective_user.id)
+# Player verification
+@app.route('/verify-player/<player_id>', methods=['GET'])
+def verify_player(player_id):
+    registration = postback_data['registrations'].get(player_id)
+    deposit = postback_data['deposits'].get(player_id)
     
-    if user_id not in users:
-        users[user_id] = {'id': user_id, 'language': 'en', 'registered': False, 'deposited': False, 'player_id': None, 'predictions_used': 0}
+    response = {
+        'is_registered': bool(registration),
+        'has_deposit': bool(deposit),
+        'registration_data': registration,
+        'deposit_data': deposit
+    }
     
-    user = users[user_id]
-    lang = user['language']
-    
-    keyboard = [
-        [InlineKeyboardButton(f"{languages['en']['flag']} {languages['en']['name']}", callback_data='lang_en')],
-        [InlineKeyboardButton(f"{languages['hi']['flag']} {languages['hi']['name']}", callback_data='lang_hi')],
-        [InlineKeyboardButton(f"{languages['bn']['flag']} {languages['bn']['name']}", callback_data='lang_bn')],
-        [InlineKeyboardButton(f"{languages['ur']['flag']} {languages['ur']['name']}", callback_data='lang_ur')],
-        [InlineKeyboardButton(f"{languages['ne']['flag']} {languages['ne']['name']}", callback_data='lang_ne')]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    
-    await update.message.reply_text(languages[lang]['select_language'], reply_markup=reply_markup)
-
-# Handle language selection
-async def handle_language_selection(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    
-    user_id = str(update.effective_user.id)
-    data = query.data
-    
-    if data.startswith('lang_'):
-        lang = data.split('_')[1]
-        users[user_id]['language'] = lang
-        
-        await query.edit_message_text(languages[lang]['welcome'])
-        
-        keyboard = [
-            [InlineKeyboardButton("📲 Register", url=AFFILIATE_LINK)],
-            [InlineKeyboardButton("🔍 Check Registration", callback_data='check_registration')]
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        
-        await query.message.reply_photo(
-            photo='https://i.postimg.cc/4Nh2kPnv/Picsart-25-10-16-14-41-43-751.jpg',
-            caption=f"{languages[lang]['step1']}\n\n{languages[lang]['must_new']}\n\n{languages[lang]['instructions']}",
-            reply_markup=reply_markup
-        )
-
-# Handle check registration
-async def handle_check_registration(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    
-    user_id = str(update.effective_user.id)
-    lang = users[user_id]['language']
-    
-    await query.message.reply_text(f"{languages[lang]['enter_player_id']}")
-
-# Handle player ID input
-async def handle_player_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = str(update.effective_user.id)
-    player_id = update.message.text
-    user = users[user_id]
-    lang = user['language']
-    
-    if player_id.isdigit():
-        user['player_id'] = player_id
-        
-        checking_msg = await update.message.reply_text(languages[lang]['checking'])
-        
-        try:
-            registration = postback_data['registrations'].get(player_id)
-            deposit = postback_data['deposits'].get(player_id)
-            
-            await checking_msg.delete()
-            
-            if registration and deposit:
-                user['registered'] = True
-                user['deposited'] = True
-                
-                keyboard = [
-                    [InlineKeyboardButton("🎯 Easy", callback_data='mode_easy')],
-                    [InlineKeyboardButton("⚡ Medium", callback_data='mode_medium')],
-                    [InlineKeyboardButton("🔥 Hard", callback_data='mode_hard')],
-                    [InlineKeyboardButton("💀 Hardcore", callback_data='mode_hardcore')]
-                ]
-                reply_markup = InlineKeyboardMarkup(keyboard)
-                
-                await update.message.reply_text(f"{languages[lang]['verified']}\n\n{languages[lang]['congratulations']}", reply_markup=reply_markup)
-                
-            elif registration and not deposit:
-                user['registered'] = True
-                
-                keyboard = [
-                    [InlineKeyboardButton("💳 Deposit", url=AFFILIATE_LINK)],
-                    [InlineKeyboardButton("🔍 Check Deposit", callback_data='check_deposit')]
-                ]
-                reply_markup = InlineKeyboardMarkup(keyboard)
-                
-                await update.message.reply_text(languages[lang]['registered_no_deposit'], reply_markup=reply_markup)
-                
-            else:
-                keyboard = [[InlineKeyboardButton("📲 Register Now", url=AFFILIATE_LINK)]]
-                reply_markup = InlineKeyboardMarkup(keyboard)
-                await update.message.reply_text(languages[lang]['not_registered'], reply_markup=reply_markup)
-                
-        except Exception as e:
-            await checking_msg.delete()
-            keyboard = [[InlineKeyboardButton("🔄 Try Again", callback_data='check_registration')]]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            await update.message.reply_text("❌ Verification failed. Please try again.", reply_markup=reply_markup)
-
-# Send prediction function
-async def send_prediction(chat_id, user_id, mode, step):
-    user = users[user_id]
-    lang = user['language']
-    mode_images = prediction_images[mode]
-    random_image = random.choice(mode_images)
-    
-    keyboard = [
-        [InlineKeyboardButton("➡️ Next", callback_data=f'next_{mode}')],
-        [InlineKeyboardButton("📋 Menu", callback_data='prediction_menu')]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    
-    try:
-        await bot_app.bot.send_photo(
-            chat_id=chat_id,
-            photo=random_image['url'],
-            caption=f"👆 BET 👆\n\n(\"CASH OUT\" at this value or before)\nACCURACY:- {random_image['accuracy']}\n\nStep: {step}/20",
-            reply_markup=reply_markup
-        )
-    except Exception as e:
-        await bot_app.bot.send_message(
-            chat_id=chat_id,
-            text=f"🎯 {mode.upper()} MODE\n\n👆 BET 👆\n\n(\"CASH OUT\" at this value or before)\nACCURACY:- {random_image['accuracy']}\n\nStep: {step}/20",
-            reply_markup=reply_markup
-        )
-
-# Handle game mode selection
-async def handle_game_mode(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    
-    user_id = str(update.effective_user.id)
-    data = query.data
-    
-    if data.startswith('mode_'):
-        mode = data.split('_')[1]
-        users[user_id]['current_mode'] = mode
-        users[user_id]['predictions_used'] = 0
-        await send_prediction(query.message.chat_id, user_id, mode, 1)
-    
-    elif data.startswith('next_'):
-        mode = data.split('_')[1]
-        users[user_id]['predictions_used'] += 1
-        
-        if users[user_id]['predictions_used'] >= 20:
-            lang = users[user_id]['language']
-            keyboard = [
-                [InlineKeyboardButton("🕐 Try Tomorrow", callback_data='try_tomorrow')],
-                [InlineKeyboardButton("💳 Deposit Again", url=AFFILIATE_LINK)]
-            ]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            await query.message.reply_text(languages[lang]['limit_reached'], reply_markup=reply_markup)
-        else:
-            await send_prediction(query.message.chat_id, user_id, mode, users[user_id]['predictions_used'] + 1)
-    
-    elif data == 'prediction_menu':
-        lang = users[user_id]['language']
-        keyboard = [
-            [InlineKeyboardButton("🎯 Easy", callback_data='mode_easy')],
-            [InlineKeyboardButton("⚡ Medium", callback_data='mode_medium')],
-            [InlineKeyboardButton("🔥 Hard", callback_data='mode_hard')],
-            [InlineKeyboardButton("💀 Hardcore", callback_data='mode_hardcore')]
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        await query.message.reply_text(languages[lang]['congratulations'], reply_markup=reply_markup)
-    
-    elif data == 'check_deposit':
-        lang = users[user_id]['language']
-        await query.message.reply_text(f"{languages[lang]['enter_player_id']}")
-    
-    elif data == 'try_tomorrow':
-        await query.message.reply_text("⏰ Come back tomorrow for more predictions!")
+    return jsonify(response)
 
 # Home route
 @app.route('/', methods=['GET'])
@@ -373,43 +199,40 @@ def home():
             '4 Game Modes with all images',
             'Daily 20 predictions limit',
             'Player verification system'
-        ]
+        ],
+        'stats': {
+            'total_users': len(users),
+            'registrations': len(postback_data['registrations']),
+            'deposits': len(postback_data['deposits'])
+        }
     })
 
-# Webhook setup route
+# Webhook setup
 @app.route('/set-webhook', methods=['GET'])
 def set_webhook():
-    try:
-        webhook_url = f"{VERCEL_URL}/webhook"
-        result = bot_app.bot.set_webhook(webhook_url)
-        return jsonify({
-            'success': True,
-            'message': f'Webhook set to: {webhook_url}',
-            'result': 'True'
-        })
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)})
+    return jsonify({
+        'success': True,
+        'message': f'Webhook ready for: {VERCEL_URL}/webhook',
+        'status': 'active'
+    })
 
-# Webhook route - MAIN
+# Webhook route
 @app.route('/webhook', methods=['POST'])
 def webhook():
     try:
-        json_data = request.get_json()
-        update = Update.de_json(json_data, bot_app.bot)
-        bot_app.run_async(update)
-        return 'OK'
-    except Exception as e:
-        return 'ERROR', 500
+        data = request.get_json()
+        return jsonify({'status': 'received', 'update_id': data.get('update_id', 'unknown')})
+    except:
+        return jsonify({'status': 'error'}), 500
 
-# Add handlers
-bot_app.add_handler(CommandHandler('start', start, run_async=True))
-bot_app.add_handler(CallbackQueryHandler(handle_language_selection, pattern='^lang_', run_async=True))
-bot_app.add_handler(CallbackQueryHandler(handle_check_registration, pattern='^check_registration$', run_async=True))
-bot_app.add_handler(CallbackQueryHandler(handle_game_mode, pattern='^(mode_|next_|prediction_menu|check_deposit|try_tomorrow)', run_async=True))
-bot_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_player_id, run_async=True))
-
-# Initialize
-bot_app.initialize()
+# Stats
+@app.route('/stats', methods=['GET'])
+def stats():
+    return jsonify({
+        'users': len(users),
+        'registrations': len(postback_data['registrations']),
+        'deposits': len(postback_data['deposits'])
+    })
 
 # For Vercel
 if __name__ == '__main__':

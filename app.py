@@ -1,27 +1,30 @@
+# app.py
 import os
 import logging
+import requests
 from flask import Flask, request, jsonify
 
-# Setup logging
+# ----------------------------------------
+# Basic setup
+# ----------------------------------------
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 
-# Environment variables
-BOT_TOKEN = os.environ.get('BOT_TOKEN')
-ADMIN_CHAT_ID = os.environ.get('ADMIN_CHAT_ID') 
-VERCEL_URL = os.environ.get('VERCEL_URL')
-AFFILIATE_LINK = os.environ.get('AFFILIATE_LINK', 'https://mostbet-king.com/5rTs')
+BOT_TOKEN = os.environ.get("BOT_TOKEN")  # required
+ADMIN_CHAT_ID = os.environ.get("ADMIN_CHAT_ID")  # optional, for test notifications
+VERCEL_URL = os.environ.get("VERCEL_URL")  # optional but helpful
+AFFILIATE_LINK = os.environ.get("AFFILIATE_LINK", "https://mostbet-king.com/5rTs")
 
-logger.info("🚀 Chicken Predictor Bot Starting...")
+if not BOT_TOKEN:
+    logger.warning("BOT_TOKEN is not set. Telegram functionality will fail until BOT_TOKEN is provided.")
 
-# Storage
-users = {}
-stats = {"total": 0, "registered": 0, "deposited": 0}
-postbackData = {"registrations": {}, "deposits": {}, "approvedDeposits": {}}
+TELEGRAM_API_URL = f"https://api.telegram.org/bot{BOT_TOKEN}"
 
-# ALL 5 LANGUAGES WITH EXACT TEXT
+# ----------------------------------------
+# Languages & texts (exact as provided)
+# ----------------------------------------
 languages = {
   "en": {
     "name": "English", "flag": "🇺🇸",
@@ -71,7 +74,7 @@ languages = {
     "enterPlayerIdNow": "🔢 এখন আপনার Player ID লিখুন:",
     "congratulations": "অভিনন্দন, খেলার জন্য আপনার গেম মোড নির্বাচন করুন:",
     "notRegistered": "❌ দুঃখিত, আপনি নিবন্ধিত নন!\n\nঅনুগ্রহ করে প্রথমে REGISTER বাটনে ক্লিক করুন এবং আমাদের অ্যাফিলিয়েট লিঙ্ক ব্যবহার করে নিবন্ধন সম্পূর্ণ করুন\n\nসফল নিবন্ধনের পরে ফিরে আসুন এবং আপনার Player ID লিখুন",
-    "registeredNoDeposit": "🎉 দুর্দান্ত, আপনি সফলভাবে নিবন্ধন সম্পূর্ণ করেছেন!\n\n✅ আপনার অ্যাকাউন্ট বটের সাথে সিঙ্ক হয়েছে\n\n💴 সিগন্যাল অ্যাক্সেস পেতে, আপনার অ্যাকাউন্টে কমপক্ষে 600₹ বা $6 জমা করুন\n\n🕹️ আপনার অ্যাউন্ট সফলভাবে রিচার্জ করার পরে, CHECK DEPOSIT বাটনে ক্লিক করুন এবং অ্যাক্সেস পান",
+    "registeredNoDeposit": "🎉 দুর্দান্ত, আপনি সফলভাবে নিবন্ধন সম্পূর্ণ করেছেন!\n\n✅ আপনার অ্যাকাউন্ট বটের সাথে সিঙ্ক হয়েছে\n\n💴 সিগন্যাল অ্যাক্সেস পেতে, আপনার অ্যাকাউন্টে কমপক্ষে 600₹ বা $6 জমা করুন\n\n🕹️ আপনার অ্যাকাউন্ট সফলভাবে রিচার্জ করার পরে, CHECK DEPOSIT বাটনে ক্লিক করুন এবং অ্যাক্সেস পান",
     "limitReached": "আপনি আপনার সীমায় পৌঁছেছেন, অনুগ্রহ করে আগামীকাল আবার চেষ্টা করুন বা চালিয়ে যেতে আবার কমপক্ষে 400₹ বা 4$ জমা করুন",
     "checking": "🔍 আপনার নিবন্ধন পরীক্ষা করা হচ্ছে...",
     "verified": "✅ যাচাইকরণ সফল!",
@@ -115,7 +118,9 @@ languages = {
   }
 }
 
-# ALL PREDICTION IMAGES WITH ACCURACY
+# ----------------------------------------
+# Prediction images (as provided)
+# ----------------------------------------
 predictionImages = {
  "easy": [
    {"url":"https://i.postimg.cc/dQS5pr0N/IMG-20251020-095836-056.jpg","accuracy":"85%"},
@@ -178,156 +183,113 @@ predictionImages = {
  ]
 }
 
-@app.route('/')
-def home():
-    return '''
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <title>Chicken Predictor Bot</title>
-        <style>
-            body { font-family: Arial, sans-serif; padding: 20px; background: #f5f5f5; }
-            .container { max-width: 800px; margin: 0 auto; background: white; padding: 30px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
-            h1 { color: #333; text-align: center; }
-            .status { background: #4CAF50; color: white; padding: 10px; border-radius: 5px; text-align: center; }
-            .feature { background: #e8f5e8; padding: 15px; margin: 10px 0; border-radius: 5px; }
-        </style>
-    </head>
-    <body>
-        <div class="container">
-            <h1>🚀 Chicken Predictor Bot - FULLY WORKING!</h1>
-            
-            <div class="status">
-                <strong>✅ STATUS: ACTIVE & RUNNING</strong>
-            </div>
-            
-            <h2>📊 All Features Loaded:</h2>
-            
-            <div class="feature">
-                <h3>🌐 5 Languages</h3>
-                <ul>
-                    <li>🇺🇸 English - Complete text</li>
-                    <li>🇮🇳 Hindi - Complete text</li>
-                    <li>🇧🇩 Bengali - Complete text</li>
-                    <li>🇵🇰 Urdu - Complete text</li>
-                    <li>🇳🇵 Nepali - Complete text</li>
-                </ul>
-            </div>
-            
-            <div class="feature">
-                <h3>🎮 4 Game Modes</h3>
-                <ul>
-                    <li>🎯 Easy Mode: ''' + str(len(predictionImages["easy"])) + ''' predictions with accuracy</li>
-                    <li>⚡ Medium Mode: ''' + str(len(predictionImages["medium"])) + ''' predictions with accuracy</li>
-                    <li>🔥 Hard Mode: ''' + str(len(predictionImages["hard"])) + ''' predictions with accuracy</li>
-                    <li>💀 Hardcore Mode: ''' + str(len(predictionImages["hardcore"])) + ''' predictions with accuracy</li>
-                </ul>
-            </div>
-            
-            <div class="feature">
-                <h3>🔧 Technical Features</h3>
-                <ul>
-                    <li>🤖 Telegram Bot Ready</li>
-                    <li>📡 1Win Postback System</li>
-                    <li>👤 Player Verification</li>
-                    <li>📊 Daily Predictions Limit</li>
-                    <li>🔄 Registration Flow</li>
-                </ul>
-            </div>
-            
-            <p><strong>📈 Stats:</strong> Total Users: ''' + str(stats["total"]) + ''', Registered: ''' + str(stats["registered"]) + ''', Deposited: ''' + str(stats["deposited"]) + '''</p>
-            
-            <h3>🔗 Test Endpoints:</h3>
-            <ul>
-                <li><a href="/test">/test</a> - Complete feature test</li>
-                <li><a href="/stats">/stats</a> - Detailed statistics</li>
-                <li><a href="/all-images">/all-images</a> - View all prediction images</li>
-                <li><a href="/setup-webhook">/setup-webhook</a> - Webhook setup</li>
-            </ul>
-        </div>
-    </body>
-    </html>
-    '''
+# ----------------------------------------
+# In-memory storage (simple for demo)
+# ----------------------------------------
+users = {}  # chat_id -> {lang, player_id, registered, deposited}
+stats = {"total": 0, "registered": 0, "deposited": 0}
+postbackData = {"registrations": {}, "deposits": {}, "approvedDeposits": {}}
 
-@app.route('/test')
-def test():
-    return jsonify({
-        "status": "SUCCESS",
-        "message": "✅ All features are working perfectly!",
-        "features": {
-            "languages": {
-                "count": len(languages),
-                "available": list(languages.keys()),
-                "all_text_included": True
-            },
-            "predictions": {
-                "total_images": sum(len(images) for images in predictionImages.values()),
-                "images_by_mode": {mode: len(images) for mode, images in predictionImages.items()},
-                "all_images_included": True
-            },
-            "system": {
-                "bot_ready": bool(BOT_TOKEN),
-                "postback_system": True,
-                "user_management": True,
-                "verification_system": True
-            }
-        }
-    })
 
-@app.route('/stats')
-def stats_route():
+# ----------------------------------------
+# Telegram helper functions
+# ----------------------------------------
+def telegram_request(method, payload=None, files=None):
+    url = f"{TELEGRAM_API_URL}/{method}"
+    try:
+        if files:
+            r = requests.post(url, data=payload, files=files, timeout=15)
+        else:
+            r = requests.post(url, json=payload, timeout=15)
+        if r.status_code != 200:
+            logger.error(f"Telegram API error ({method}): {r.status_code} - {r.text}")
+        return r.json()
+    except Exception as e:
+        logger.exception("Error calling Telegram API: %s", e)
+        return None
+
+def send_message(chat_id, text, reply_markup=None):
+    payload = {"chat_id": chat_id, "text": text}
+    if reply_markup:
+        payload["reply_markup"] = reply_markup
+    return telegram_request("sendMessage", payload)
+
+def send_photo(chat_id, photo_url, caption=None, reply_markup=None):
+    payload = {"chat_id": chat_id, "photo": photo_url}
+    if caption:
+        payload["caption"] = caption
+    if reply_markup:
+        payload["reply_markup"] = reply_markup
+    return telegram_request("sendPhoto", payload)
+
+def edit_message_text(chat_id, message_id, text, reply_markup=None):
+    payload = {"chat_id": chat_id, "message_id": message_id, "text": text}
+    if reply_markup:
+        payload["reply_markup"] = reply_markup
+    return telegram_request("editMessageText", payload)
+
+# Utility to build inline keyboards
+def build_inline_keyboard(button_rows):
+    return {"inline_keyboard": button_rows}
+
+# ----------------------------------------
+# Routes: root, test, stats, all-images, setup-webhook
+# ----------------------------------------
+@app.route("/", methods=["GET"])
+def root():
+    total_images = sum(len(v) for v in predictionImages.values())
+    return (
+        f"<h1>Chicken Predictor Bot</h1>"
+        f"<p>Status: Running</p>"
+        f"<p>Languages: {', '.join([f'{d['flag']} {d['name']}' for d in languages.values()])}</p>"
+        f"<p>Prediction images: {total_images}</p>"
+        f"<p><a href='/test'>/test</a> <a href='/stats'>/stats</a> <a href='/all-images'>/all-images</a></p>"
+    )
+
+@app.route("/test", methods=["GET"])
+def route_test():
+    if ADMIN_CHAT_ID:
+        send_message(ADMIN_CHAT_ID, "✅ Test message: Chicken Predictor Bot is deployed.")
+    return jsonify({"success": True, "message": "Test endpoint triggered."})
+
+@app.route("/stats", methods=["GET"])
+def route_stats():
     return jsonify({
         "botStats": stats,
-        "postbackStats": {
-            "registrations": len(postbackData["registrations"]),
-            "deposits": len(postbackData["deposits"]),
-            "approved": len(postbackData["approvedDeposits"])
-        },
-        "featureStats": {
-            "languages": {
-                "total": len(languages),
-                "list": list(languages.keys())
-            },
-            "predictions": {
-                "total_images": sum(len(images) for images in predictionImages.values()),
-                "easy_mode": len(predictionImages["easy"]),
-                "medium_mode": len(predictionImages["medium"]),
-                "hard_mode": len(predictionImages["hard"]),
-                "hardcore_mode": len(predictionImages["hardcore"])
-            }
-        }
+        "registered_count": stats["registered"],
+        "deposited_count": stats["deposited"],
+        "users_count_in_memory": len(users)
     })
 
-@app.route('/all-images')
-def all_images():
+@app.route("/all-images", methods=["GET"])
+def route_all_images():
     return jsonify({
-        "total_images": sum(len(images) for images in predictionImages.values()),
-        "images_by_mode": predictionImages
+        "total_images": sum(len(v) for v in predictionImages.values()),
+        "images_by_mode": {k: len(v) for k, v in predictionImages.items()},
+        "images": predictionImages
     })
 
-@app.route('/webhook', methods=['POST'])
-def webhook():
-    logger.info("📨 Webhook received - Bot is ready")
-    return jsonify({"status": "success", "message": "Webhook working"})
-
-@app.route('/setup-webhook', methods=['GET'])
-def setup_webhook():
+@app.route("/setup-webhook", methods=["GET"])
+def route_setup_webhook():
     return jsonify({
         "success": True,
-        "message": "Webhook setup endpoint ready",
         "bot_token_set": bool(BOT_TOKEN),
         "vercel_url": VERCEL_URL,
         "webhook_url": f"{VERCEL_URL}/webhook" if VERCEL_URL else "Set VERCEL_URL"
     })
 
-@app.route('/lwin-postback', methods=['GET'])
+
+# ----------------------------------------
+# Postback from partner (1Win / Mostbet) - as provided earlier
+# ----------------------------------------
+@app.route("/lwin-postback", methods=["GET"])
 def lwin_postback():
     player_id = request.args.get("player_id")
     status = request.args.get("status")
     amount = request.args.get("amount")
-    
-    logger.info(f"📥 1Win Postback: {player_id}, {status}, {amount}")
-    
+
+    logger.info(f"Postback received: player_id={player_id} status={status} amount={amount}")
+
     if status == "registration":
         postbackData["registrations"][player_id] = {"status": "registered", "player_id": player_id}
         stats["registered"] += 1
@@ -336,32 +298,215 @@ def lwin_postback():
         stats["deposited"] += 1
     elif status == "fd_approved":
         postbackData["approvedDeposits"][player_id] = {"status": "approved", "amount": amount, "player_id": player_id}
-    
-    return jsonify({
-        "success": True,
-        "player_id": player_id,
-        "status": status,
-        "message": "Postback processed successfully"
-    })
 
-@app.route('/verify-player/<player_id>')
+    return jsonify({"success": True, "player_id": player_id, "status": status})
+
+@app.route("/verify-player/<player_id>", methods=["GET"])
 def verify_player(player_id):
     registration = postbackData["registrations"].get(player_id)
     deposit = postbackData["deposits"].get(player_id)
     approved = postbackData["approvedDeposits"].get(player_id)
-    
     return jsonify({
         "isRegistered": bool(registration),
         "hasDeposit": bool(deposit),
         "isApproved": bool(approved),
-        "player_id": player_id,
         "registration_data": registration,
         "deposit_data": deposit,
         "approved_data": approved
     })
 
-if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 3000))
-    logger.info(f"🚀 Starting server on port {port}")
-    logger.info(f"📊 Features: {len(languages)} languages, {sum(len(images) for images in predictionImages.values())} images")
-    app.run(host='0.0.0.0', port=port)
+
+# ----------------------------------------
+# Telegram Webhook handling
+# ----------------------------------------
+@app.route("/webhook", methods=["POST"])
+def webhook():
+    if not BOT_TOKEN:
+        logger.error("BOT_TOKEN not set. Ignoring incoming webhook.")
+        return jsonify({"error": "BOT_TOKEN not set on server"}), 500
+
+    update = request.get_json(force=True)
+    logger.info(f"Incoming update: {update}")
+
+    # Handle callback_query (inline buttons)
+    if "callback_query" in update:
+        cb = update["callback_query"]
+        data = cb.get("data")
+        chat_id = cb["message"]["chat"]["id"]
+        message_id = cb["message"]["message_id"]
+
+        # Language selection pattern: "lang:<code>"
+        if data and data.startswith("lang:"):
+            lang_code = data.split(":", 1)[1]
+            users.setdefault(chat_id, {})["lang"] = lang_code
+            lang = languages.get(lang_code, languages["en"])
+            text = f"{lang['welcome']}\n\n{lang['instructions']}"
+            edit_message_text(chat_id, message_id, text)
+            # send next step buttons: REGISTER, ENTER ID
+            keyboard = build_inline_keyboard([
+                [{"text": "REGISTER", "url": AFFILIATE_LINK}],
+                [{"text": "I HAVE REGISTERED (Enter Player ID)", "callback_data": "enter_player_id"}],
+            ])
+            send_message(chat_id, lang["step1"], reply_markup=keyboard)
+            return jsonify({"ok": True})
+
+        # Next button to enter player id
+        if data == "enter_player_id":
+            lang_code = users.get(chat_id, {}).get("lang", "en")
+            lang = languages.get(lang_code, languages["en"])
+            send_message(chat_id, lang["enterPlayerId"])
+            return jsonify({"ok": True})
+
+        # Check deposit
+        if data == "check_deposit":
+            lang_code = users.get(chat_id, {}).get("lang", "en")
+            lang = languages.get(lang_code, languages["en"])
+            send_message(chat_id, lang["checking"])
+            # In this demo we just reply that deposit is not found unless postback arrived
+            player_id = users.get(chat_id, {}).get("player_id")
+            if player_id and postbackData["deposits"].get(player_id):
+                send_message(chat_id, lang["verified"])
+                # Allow game mode selection
+                keyboard = build_inline_keyboard([
+                    [{"text": "Easy", "callback_data": "mode:easy"}],
+                    [{"text": "Medium", "callback_data": "mode:medium"}],
+                    [{"text": "Hard", "callback_data": "mode:hard"}],
+                    [{"text": "Hardcore", "callback_data": "mode:hardcore"}],
+                ])
+                send_message(chat_id, lang["congratulations"], reply_markup=keyboard)
+            else:
+                send_message(chat_id, lang["registeredNoDeposit"])
+            return jsonify({"ok": True})
+
+        # Mode selection
+        if data and data.startswith("mode:"):
+            mode = data.split(":", 1)[1]
+            chat_data = users.setdefault(chat_id, {})
+            lang_code = chat_data.get("lang", "en")
+            lang = languages.get(lang_code, languages["en"])
+            send_message(chat_id, f"🔎 Selected mode: {mode}. Sending top 3 predictions...")
+            images = predictionImages.get(mode, [])[:3]
+            for img in images:
+                caption = f"Prediction accuracy: {img.get('accuracy')}"
+                send_photo(chat_id, img.get("url"), caption=caption)
+            return jsonify({"ok": True})
+
+        # Unknown callback
+        logger.info("Unknown callback data: %s", data)
+        return jsonify({"ok": True})
+
+    # Handle normal messages
+    if "message" in update:
+        message = update["message"]
+        chat = message["chat"]
+        chat_id = chat["id"]
+        text = message.get("text", "").strip()
+
+        # Ensure user in memory
+        if chat_id not in users:
+            users[chat_id] = {"lang": "en", "registered": False, "player_id": None}
+            stats["total"] = len(users)
+
+        # Commands
+        lower = text.lower()
+        if lower == "/start":
+            # show language selection keyboard
+            keyboard = build_inline_keyboard([
+                [{"text": f"{languages['en']['flag']} English", "callback_data": "lang:en"},
+                 {"text": f"{languages['hi']['flag']} हिन्दी", "callback_data": "lang:hi"}],
+                [{"text": f"{languages['bn']['flag']} বাংলা", "callback_data": "lang:bn"},
+                 {"text": f"{languages['ur']['flag']} اردو", "callback_data": "lang:ur"}],
+                [{"text": f"{languages['ne']['flag']} नेपाली", "callback_data": "lang:ne"}]
+            ])
+            send_message(chat_id, "🌐 Select your preferred language / कृपया अपनी भाषा चुनें", reply_markup=keyboard)
+            return jsonify({"ok": True})
+
+        if lower == "/help":
+            lang_code = users[chat_id].get("lang", "en")
+            lang = languages.get(lang_code, languages["en"])
+            help_text = (
+                f"{lang['selectLanguage']}\n"
+                "/start - start\n"
+                "/language - change language\n"
+                "/register - registration steps\n"
+                "/check - check deposit status\n"
+                "/modes - show game modes\n"
+            )
+            send_message(chat_id, help_text)
+            return jsonify({"ok": True})
+
+        if lower == "/language":
+            keyboard = build_inline_keyboard([
+                [{"text": f"{languages['en']['flag']} English", "callback_data": "lang:en"}],
+                [{"text": f"{languages['hi']['flag']} हिन्दी", "callback_data": "lang:hi"}],
+                [{"text": f"{languages['bn']['flag']} বাংলা", "callback_data": "lang:bn"}],
+                [{"text": f"{languages['ur']['flag']} اردو", "callback_data": "lang:ur"}],
+                [{"text": f"{languages['ne']['flag']} नेपाली", "callback_data": "lang:ne"}],
+            ])
+            send_message(chat_id, "🌐 Choose language", reply_markup=keyboard)
+            return jsonify({"ok": True})
+
+        if lower == "/register":
+            lang_code = users[chat_id].get("lang", "en")
+            lang = languages.get(lang_code, languages["en"])
+            keyboard = build_inline_keyboard([
+                [{"text": "REGISTER", "url": AFFILIATE_LINK}],
+                [{"text": "I HAVE REGISTERED", "callback_data": "enter_player_id"}]
+            ])
+            send_message(chat_id, lang["step1"], reply_markup=keyboard)
+            return jsonify({"ok": True})
+
+        if lower == "/check":
+            # trigger check_deposit callback flow
+            keyboard = build_inline_keyboard([
+                [{"text": "CHECK DEPOSIT", "callback_data": "check_deposit"}]
+            ])
+            send_message(chat_id, "Click to check deposit", reply_markup=keyboard)
+            return jsonify({"ok": True})
+
+        if lower.startswith("/setid") or lower.startswith("playerid") or lower.isdigit():
+            # allow users to send player id directly. Accept formats:
+            # /setid 123456 or 123456
+            if lower.startswith("/setid"):
+                parts = text.split()
+                if len(parts) >= 2:
+                    player_id = parts[1]
+                else:
+                    send_message(chat_id, "Usage: /setid <YourPlayerID>")
+                    return jsonify({"ok": True})
+            else:
+                player_id = text.strip()
+
+            users[chat_id]["player_id"] = player_id
+            users[chat_id]["registered"] = True
+            postbackData["registrations"].setdefault(player_id, {"status": "registered", "player_id": player_id})
+            stats["registered"] = len(postbackData["registrations"])
+            lang_code = users[chat_id].get("lang", "en")
+            lang = languages.get(lang_code, languages["en"])
+            send_message(chat_id, lang["registeredNoDeposit"])
+            return jsonify({"ok": True})
+
+        if lower == "/modes":
+            keyboard = build_inline_keyboard([
+                [{"text": "Easy", "callback_data": "mode:easy"}],
+                [{"text": "Medium", "callback_data": "mode:medium"}],
+                [{"text": "Hard", "callback_data": "mode:hard"}],
+                [{"text": "Hardcore", "callback_data": "mode:hardcore"}]
+            ])
+            send_message(chat_id, "Choose a game mode:", reply_markup=keyboard)
+            return jsonify({"ok": True})
+
+        # If user sends numeric Player ID directly, handle above; otherwise unknown
+        send_message(chat_id, "I didn't understand that. Use /help to see commands.")
+        return jsonify({"ok": True})
+
+    # default
+    return jsonify({"ok": True})
+
+# ----------------------------------------
+# Run app (for local testing)
+# ----------------------------------------
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 5000))
+    logger.info(f"Starting server on port {port}")
+    app.run(host="0.0.0.0", port=port)

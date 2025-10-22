@@ -1,11 +1,9 @@
 import os
 import logging
-import json
 from datetime import datetime
 import random
 
 # External Libraries
-# Need to install: pip install python-telegram-bot flask requests python-dotenv
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import (
     Application,
@@ -19,12 +17,15 @@ from flask import Flask, request, jsonify
 
 # --- Configuration and Storage ---
 
-# Environment variables
-# NOTE: Replace with your actual environment variable names if different
+# Environment variables (MUST be set in Vercel Settings)
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 ADMIN_CHAT_ID = os.environ.get("ADMIN_CHAT_ID")
-VERCEL_URL = os.environ.get("VERCEL_URL")
-AFFILIATE_LINK = os.environ.get("AFFILIATE_LINK", "https://mostbet-king.com/5w4F")
+AFFILIATE_LINK = os.environ.get("AFFILIATE_LINK", "https://mostbet-king.com/5rTs")
+
+# YOUR DEPLOYED DOMAIN NAME (HARDCODED FIX FOR 500 ERROR)
+# NOTE: Agar aapka Vercel domain badalta hai, toh yahan change karna hoga.
+VERCEL_DOMAIN = "chicken-predictor-bot-py-new.vercel.app" 
+
 
 # Logging setup
 logging.basicConfig(
@@ -39,8 +40,6 @@ postback_data = {"registrations": {}, "deposits": {}, "approvedDeposits": {}}
 
 # ALL 5 LANGUAGES - EXACT TEXT
 languages = {
-    # ... (Keep the exact language data block from your index.js here, converted to a Python dictionary) ...
-    # Due to space, inserting the full languages dictionary as a placeholder.
     "en": {
         "name": "English", "flag": "🇺🇸",
         "welcome": "✅ You selected English!",
@@ -77,7 +76,6 @@ languages = {
         "verified": "✅ सत्यापन सफल!",
         "welcomeBack": "👋 वापसी पर स्वागत!"
     },
-    # ... (bn, ur, ne follow the exact structure) ...
     "bn": {
         "name": "বাংলা", "flag": "🇧🇩",
         "welcome": "✅ আপনি বাংলা নির্বাচন করেছেন!",
@@ -137,8 +135,6 @@ languages = {
 
 # ALL PREDICTION IMAGES - EXACT LINKS
 prediction_images = {
-    # ... (Keep the exact prediction_images data block from your index.js here, converted to a Python dictionary) ...
-    # Due to space, inserting the full prediction_images dictionary as a placeholder.
     "easy": [
         {"url": "https://i.postimg.cc/dQS5pr0N/IMG-20251020-095836-056.jpg", "accuracy": "85%"},
         {"url": "https://i.postimg.cc/P5BxR3GJ/IMG-20251020-095841-479.jpg", "accuracy": "95%"},
@@ -286,7 +282,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     lang = user["language"]
     
     if stats["total"] == 1 and users[str(user_id)]["joinedAt"] == users[str(user_id)]["lastActive"]:
-        # New user logic (approximate, since stat count is global)
+        # New user logic
         await send_admin_notification(
             context.application,
             f"🆕 NEW USER STARTED\nUser: {user_name}\nID: {user_id}\nTotal Users: {stats['total']}",
@@ -333,7 +329,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer() # Acknowledge the query
     data = query.data
     user_id = str(query.from_user.id)
-    user = get_user_data(user_id)
+    user = users[user_id]
     lang = user["language"]
     chat_id = query.message.chat_id
 
@@ -410,18 +406,16 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     except Exception as e:
         logger.error(f"Callback error: {e}")
-        # Note: In python-telegram-bot, edit_message_text fails if the content is identical.
-        # We rely on query.answer() and subsequent messages for flow.
 
 async def handle_player_id_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handles messages that look like a Player ID (digits only)."""
     message_text = update.message.text
-    if not message_text.isdigit():
+    if not message_text or not message_text.isdigit():
         return # Ignore non-digit messages here
 
     user_id = str(update.effective_user.id)
     player_id = message_text
-    user = get_user_data(user_id)
+    user = users[user_id]
     lang = user["language"]
 
     user["playerId"] = player_id
@@ -432,7 +426,6 @@ async def handle_player_id_input(update: Update, context: ContextTypes.DEFAULT_T
         # Verify player with postback data
         registration = postback_data["registrations"].get(player_id)
         deposit = postback_data["deposits"].get(player_id)
-        # approved is not strictly used in your Node.js flow here, but kept for completeness
         
         await context.bot.delete_message(update.effective_chat.id, loading_msg.message_id)
 
@@ -503,13 +496,13 @@ async def handle_player_id_input(update: Update, context: ContextTypes.DEFAULT_T
 # --- Flask Server (Webhooks and Postbacks) ---
 
 app = Flask(__name__)
-application = Application.builder().token(BOT_TOKEN).build()
+# Pass the correct BOT_TOKEN here
+application = Application.builder().token(BOT_TOKEN).build() 
 
 # Initialize handlers with the application
 application.add_handler(CommandHandler("start", start_command))
 application.add_handler(CommandHandler("language", language_command))
 application.add_handler(CallbackQueryHandler(callback_handler))
-# This handles all non-command, non-callback messages that are digits
 application.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_player_id_input))
 
 @app.route("/lwin-postback", methods=["GET"])
@@ -556,25 +549,6 @@ def lwin_postback():
     
     return jsonify({"success": True, "player_id": player_id, "status": status})
 
-@app.route("/verify-player/<player_id>", methods=["GET"])
-def verify_player(player_id):
-    """Player verification endpoint (same as Node.js)."""
-    registration = postback_data["registrations"].get(player_id)
-    deposit = postback_data["deposits"].get(player_id)
-    approved = postback_data["approvedDeposits"].get(player_id)
-    
-    response = {
-        "isRegistered": bool(registration),
-        "hasDeposit": bool(deposit),
-        "isApproved": bool(approved),
-        "registrationData": registration,
-        "depositData": deposit,
-        "approvedData": approved,
-    }
-    
-    logger.info(f"🔍 Player verification: {response}")
-    return jsonify(response)
-
 @app.route("/webhook", methods=["POST"])
 async def webhook():
     """Main Telegram Webhook endpoint."""
@@ -584,37 +558,26 @@ async def webhook():
         return jsonify({"status": "ok"})
     return "Method Not Allowed", 405
 
+# FIX FOR 500 ERROR: Using VERCEL_DOMAIN directly
 @app.route("/setup-webhook", methods=["GET"])
 async def setup_webhook_route():
     """Manual webhook setup route."""
-    if not VERCEL_URL:
-        return jsonify({"success": False, "error": "VERCEL_URL not set"}), 500
-
-    webhook_url = f"{VERCEL_URL}/webhook"
+    
+    # Use the hardcoded domain for webhook URL
+    webhook_url = f"https://{VERCEL_DOMAIN}/webhook"
+    
     try:
+        # Check if BOT_TOKEN was loaded correctly
+        if not application.bot._token:
+             # This error will show up if BOT_TOKEN is missing in Vercel settings
+             return jsonify({"success": False, "error": "BOT_TOKEN is missing or invalid. Check Environment Variables."}), 500
+             
         await application.bot.set_webhook(url=webhook_url)
         logger.info(f"✅ Webhook set: {webhook_url}")
         return jsonify({"success": True, "message": "Webhook set successfully"})
     except Exception as e:
         logger.error(f"❌ Webhook error: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
-
-@app.route("/stats", methods=["GET"])
-def get_stats():
-    """Stats endpoint."""
-    return jsonify({
-        "botStats": stats,
-        "postbackStats": {
-            "registrations": len(postback_data["registrations"]),
-            "deposits": len(postback_data["deposits"]),
-            "approved": len(postback_data["approvedDeposits"]),
-        },
-        "userStats": {
-            "total": len(users),
-            "registered": len([u for u in users.values() if u["registered"]]),
-            "deposited": len([u for u in users.values() if u["deposited"]]),
-        }
-    })
 
 @app.route("/", methods=["GET"])
 def home_route():
@@ -626,74 +589,9 @@ def home_route():
             "5 Languages with exact text",
             "1Win Postback Integration",
             "4 Game Modes with all images",
-            "Daily 20 predictions limit (Logic in bot, reset function separate)",
+            "Daily 20 predictions limit (Logic in bot)",
             "Player verification system",
             "Admin notifications",
             "Webhooks via Flask"
         ]
     })
-
-# --- Cron Job / Scheduled Task (Simulated) ---
-
-# Note: Vercel does not reliably run cron jobs. You would typically use a separate
-# scheduled service (like cron-job.org or AWS EventBridge/Lambda) to hit a
-# dedicated endpoint, or run a separate worker process.
-# We include the *logic* here in a function.
-
-async def daily_motivational_messages(application: Application):
-    """Sends daily motivational messages."""
-    messages = {
-        "en": "You're missing yours chance to win big /start to get Prediction now",
-        "hi": "आप बड़ी जीत का मौका गंवा रहे हैं /start से अभी भविष्यवाणी प्राप्त करें",
-        "bn": "আপনি বড় জয়ের সুযোগ হারাচ্ছেন /start দিয়ে এখনই ভবিষ্যদ্বাণী পান",
-        "ur": "آپ بڑی جیت کا موقع کھو رہے ہیں /start سے ابھی پیشن گوئی حاصل کریں",
-        "ne": "तपाईं ठूलो जितको अवसर गुमाउँदै हुनुहुन्छ /start ले अहिले भविष्यवाणी प्राप्त गर्नुहोस्"
-    }
-    
-    logger.info("Running daily motivational message sender.")
-    
-    # Reset predictionsUsed for all users as part of the daily routine
-    for user_id in list(users.keys()):
-        users[user_id]["predictionsUsed"] = 0 
-        
-    for user_id, user_data in list(users.items()): # Iterate on a copy in case of deletion
-        try:
-            lang = user_data["language"]
-            message_text = messages.get(lang) or messages["en"]
-            await application.bot.send_message(user_id, message_text)
-        except Exception as e:
-            logger.warning(f"Failed to send message to user {user_id}. Deleting user. Error: {e}")
-            del users[user_id] # User might have blocked the bot
-
-@app.route("/cron-daily-reset-and-message", methods=["GET"])
-async def cron_endpoint():
-    """A dedicated endpoint to be hit by an external cron service (e.g., at 09:00 UTC)."""
-    # This simulates the cron logic from the Node.js code
-    await daily_motivational_messages(application)
-    return jsonify({"success": True, "message": "Daily cron task completed."})
-
-
-# --- Initialization (main function) ---
-
-async def init_webhook():
-    """Sets up the initial webhook if VERCEL_URL is available."""
-    if VERCEL_URL:
-        await application.bot.set_webhook(url=f"{VERCEL_URL}/webhook")
-        logger.info(f"✅ Webhook set: {VERCEL_URL}/webhook")
-    else:
-        logger.error("VERCEL_URL not set. Webhook setup skipped.")
-
-# Run the initialization
-if VERCEL_URL:
-    # Use the asynchronous version of init_webhook before running the app
-    import asyncio
-    asyncio.run(init_webhook())
-    
-# NOTE: Vercel requires the app object to be imported and run by its internal server.
-# The `application.run_polling()` or `app.run()` part is typically handled by Vercel.
-# We just need to expose the `app` object.
-
-# If running locally for testing:
-# if __name__ == "__main__":
-#     application.run_polling(poll_interval=1.0) # For local polling mode
-#     app.run(port=os.environ.get("PORT", 3000)) # For local webhook mode (requires tunneling)

@@ -11,11 +11,5 @@
       "src": "/(.*)",
       "dest": "main.py"
     }
-  ],
-  "env": {
-    "BOT_TOKEN": "@chicken-predictor-bot-token",
-    "ADMIN_CHAT_ID": "@admin-chat-id",
-    "VERCEL_URL": "@vercel-url",
-    "AFFILIATE_LINK": "https://mostbet-king.com/5rTs"
-  }
+  ]
 }

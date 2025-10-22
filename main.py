@@ -24,7 +24,7 @@ from flask import Flask, request, jsonify
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 ADMIN_CHAT_ID = os.environ.get("ADMIN_CHAT_ID")
 VERCEL_URL = os.environ.get("VERCEL_URL")
-AFFILIATE_LINK = os.environ.get("AFFILIATE_LINK", "https://mostbet-king.com/5rTs")
+AFFILIATE_LINK = os.environ.get("AFFILIATE_LINK", "https://mostbet-king.com/5w4F")
 
 # Logging setup
 logging.basicConfig(

@@ -5,7 +5,6 @@ from datetime import datetime
 from flask import Flask, request, jsonify
 from telegram import Bot, Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Dispatcher, CommandHandler, MessageHandler, Filters, CallbackQueryHandler
-from apscheduler.schedulers.background import BackgroundScheduler
 
 # Enhanced logging
 logging.basicConfig(
@@ -18,7 +17,7 @@ logger = logging.getLogger(__name__)
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "YOUR_BOT_TOKEN_HERE")
 ADMIN_CHAT_ID = os.environ.get("ADMIN_CHAT_ID", "")
 VERCEL_URL = os.environ.get("VERCEL_URL", "") 
-AFFILIATE_LINK = os.environ.get("AFFILIATE_LINK", "https://mostbet-king.com/5w4F")
+AFFILIATE_LINK = os.environ.get("AFFILIATE_LINK", "https://mostbet-king.com/5rTs")
 
 # Initialize bot and app
 try:
@@ -102,7 +101,7 @@ languages = {
     "howToFind": "📝 Player ID کیسے ڈھونڈیں:\n1. Mostbet اکاؤنٹ میں لاگ ان کریں\n2. پروفائل سیٹنگز پر جائیں\n3. Player ID نمبر کاپی کریں\n4. یہاں پیسٹ کریں",
     "enterPlayerIdNow": "🔢 اب اپنا Player ID درج کریں:",
     "congratulations": "مبارک ہو، براہ کرم کھیلنے کے لیے اپنا گیم موڈ منتخب کریں:",
-    "notRegistered": "❌ معذرت، آپ رجسٹرڈ نہیں ہیں!\n\nبراہ کرم پہلے REGISTER بٹن پر کلک کریں اور ہمارے affiliate link کا استعمال کرتے ہوئے رجسٹریشن مکمل کریں\n\nکامیاب رجسٹریشن کے بعد واپس آئیں اور اپنا Player ID درج کریں",
+    "notRegistered": "❌ معذرت، آپ رجسٹرڈ نہیں ہیں!\n\nبراہ کرم پہلے REGISTER بٹن پر کلک کریں اور ہمارے affiliate link کا استعمال کرتے ہوئے رجسٹریشن مکمل کریں\n\nکامیاب رجس्टریشن کے بعد واپس آئیں اور اپنا Player ID درج کریں",
     "registeredNoDeposit": "🎉 بہت اچھا، آپ نے کامیابی کے ساتھ رجسٹریشن مکمل کر لی ہے!\n\n✅ آپ کا اکاؤنٹ بوٹ کے ساتھ sync ہو گیا ہے\n\n💴 سگنلز تک رسائی حاصل کرنے کے لیے، اپنے اکاؤنٹ میں کم از کم 600₹ یا $6 جمع کریں\n\n🕹️ اپنے اکاؤنٹ کو کامیابی سے ری چارج کرنے کے بعد، CHECK DEPOSIT بٹن پر کلک کریں اور رسائی حاصل کریں",
     "limitReached": "آپ اپنی حد تک پہنچ گئے ہیں، براہ کرم کل دوبارہ کوشش کریں یا جاری رکھنے کے لیے دوبارہ کم از کم 400₹ یا 4$ جمع کریں",
     "checking": "🔍 آپ کی رجسٹریشن چیک کی جا رہی ہے...",
@@ -137,7 +136,7 @@ predictionImages = {
    {"url":"https://i.postimg.cc/QdWN1QBr/IMG-20251020-095848-018.jpg","accuracy":"78%"},
    {"url":"https://i.postimg.cc/gjJmJ89H/IMG-20251020-095902-112.jpg","accuracy":"85%"},
    {"url":"https://i.postimg.cc/QMJ3J0hQ/IMG-20251020-095906-484.jpg","accuracy":"70%"},
-   {"url":"https://i.postigit.cc/654xm9BR/IMG-20251020-095911-311.jpg","accuracy":"80%"},
+   {"url":"https://i.postimg.cc/654xm9BR/IMG-20251020-095911-311.jpg","accuracy":"80%"},
    {"url":"https://i.postimg.cc/NMCZdnVX/IMG-20251020-095916-536.jpg","accuracy":"82%"},
    {"url":"https://i.postimg.cc/8k3qWqLk/IMG-20251020-095921-307.jpg","accuracy":"88%"},
    {"url":"https://i.postimg.cc/pdqSd72R/IMG-20251020-095926-491.jpg","accuracy":"75%"},
@@ -725,40 +724,6 @@ if bot:
 else:
     dispatcher = None
     logger.error("Bot not initialized - dispatcher not created")
-
-# Scheduler for daily motivational messages
-def send_daily_motivation():
-    if not bot:
-        return
-        
-    messages = {
-        "en": "You're missing yours chance to win big /start to get Prediction now",
-        "hi": "आप बड़ी जीत का मौका गंवा रहे हैं /start से अभी भविष्यवाणी प्राप्त करें",
-        "bn": "আপনি বড় জয়ের সুযোগ হারাচ্ছেন /start দিয়ে এখনই ভবিষ্যদ্বাণী পান",
-        "ur": "آپ بڑی جیت کا موقع کھو رہے ہیں /start سے ابھی پیشن گوئی حاصل کریں",
-        "ne": "तपाईं ठूलो जितको अवसर गुमाउँदै हुनुहुन्छ /start ले अहिले भविष्यवाणी प्राप्त गर्नुहोस्"
-    }
-    
-    for uid, u in list(users.items()):
-        try:
-            lang = u.get("language", "en")
-            bot.send_message(chat_id=int(uid), text=messages.get(lang, messages["en"]))
-        except Exception as e:
-            logger.info("Removing user %s due to send failure", uid)
-            try:
-                del users[uid]
-            except:
-                pass
-
-# Initialize scheduler only in production
-if VERCEL_URL:
-    try:
-        scheduler = BackgroundScheduler()
-        scheduler.add_job(send_daily_motivation, 'cron', hour=9, minute=0)
-        scheduler.start()
-        logger.info("Scheduler started successfully")
-    except Exception as e:
-        logger.error("Failed to start scheduler: %s", e)
 
 # Run server
 if __name__ == "__main__":

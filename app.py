@@ -3,28 +3,39 @@ import os
 import logging
 from datetime import datetime
 from flask import Flask, request, jsonify
-from telegram import Bot, Update, InlineKeyboardButton, InlineKeyboardMarkup, ParseMode
+from telegram import Bot, Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Dispatcher, CommandHandler, MessageHandler, Filters, CallbackQueryHandler
 from apscheduler.schedulers.background import BackgroundScheduler
 
-logging.basicConfig(level=logging.INFO)
+# Enhanced logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
 logger = logging.getLogger(__name__)
 
-# Environment variables (set these in Vercel / Render / your VPS)
+# Environment variables
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "YOUR_BOT_TOKEN_HERE")
-ADMIN_CHAT_ID = os.environ.get("ADMIN_CHAT_ID", "")  # admin telegram id as string
-VERCEL_URL = os.environ.get("VERCEL_URL", "")  # e.g. https://your-app.vercel.app
+ADMIN_CHAT_ID = os.environ.get("ADMIN_CHAT_ID", "")
+VERCEL_URL = os.environ.get("VERCEL_URL", "") 
 AFFILIATE_LINK = os.environ.get("AFFILIATE_LINK", "https://mostbet-king.com/5rTs")
 
-bot = Bot(token=BOT_TOKEN)
+# Initialize bot and app
+try:
+    bot = Bot(token=BOT_TOKEN)
+    logger.info("Bot initialized successfully")
+except Exception as e:
+    logger.error(f"Bot initialization failed: {e}")
+    bot = None
+
 app = Flask(__name__)
 
-# In-memory storage (same structure and initial values)
+# In-memory storage
 users = {}
 stats = {"total": 0, "registered": 0, "deposited": 0}
 postbackData = {"registrations": {}, "deposits": {}, "approvedDeposits": {}}
 
-# Languages - copied exactly from your JS (kept wording)
+# Languages - EXACTLY as in your original
 languages = {
   "en": {
     "name": "English", "flag": "🇺🇸",
@@ -118,7 +129,7 @@ languages = {
   }
 }
 
-# Prediction images mapping - same links you provided
+# Prediction images mapping - EXACT same links
 predictionImages = {
  "easy": [
    {"url":"https://i.postimg.cc/dQS5pr0N/IMG-20251020-095836-056.jpg","accuracy":"85%"},
@@ -126,7 +137,7 @@ predictionImages = {
    {"url":"https://i.postimg.cc/QdWN1QBr/IMG-20251020-095848-018.jpg","accuracy":"78%"},
    {"url":"https://i.postimg.cc/gjJmJ89H/IMG-20251020-095902-112.jpg","accuracy":"85%"},
    {"url":"https://i.postimg.cc/QMJ3J0hQ/IMG-20251020-095906-484.jpg","accuracy":"70%"},
-   {"url":"https://i.postimg.cc/654xm9BR/IMG-20251020-095911-311.jpg","accuracy":"80%"},
+   {"url":"https://i.postigit.cc/654xm9BR/IMG-20251020-095911-311.jpg","accuracy":"80%"},
    {"url":"https://i.postimg.cc/NMCZdnVX/IMG-20251020-095916-536.jpg","accuracy":"82%"},
    {"url":"https://i.postimg.cc/8k3qWqLk/IMG-20251020-095921-307.jpg","accuracy":"88%"},
    {"url":"https://i.postimg.cc/pdqSd72R/IMG-20251020-095926-491.jpg","accuracy":"75%"},
@@ -149,7 +160,7 @@ predictionImages = {
    {"url":"https://i.postimg.cc/tJ4njBXg/IMG-20251020-104439-671.jpg","accuracy":"83%"},
    {"url":"https://i.postimg.cc/dVykwkKH/IMG-20251020-104443-615.jpg","accuracy":"87%"},
    {"url":"https://i.postimg.cc/MHHH4XDw/IMG-20251020-104452-202.jpg","accuracy":"84%"},
-   {"url":"https://i.postimg.cc/6pn3FkdL/IMG-20251020-104458-282.jpg","accuracy":"86%"},
+   {"url":"https://i.postimg.cc/6pn3FkdL/IMG-20251020-104498-282.jpg","accuracy":"86%"},
    {"url":"https://i.postimg.cc/85PzJsqD/IMG-20251020-104509-839.jpg","accuracy":"81%"},
    {"url":"https://i.postimg.cc/bN2N27Vm/IMG-20251020-104521-438.jpg","accuracy":"89%"},
    {"url":"https://i.postimg.cc/0NZ8sPrV/IMG-20251020-104526-899.jpg","accuracy":"85%"},
@@ -202,16 +213,22 @@ def next_menu_keyboard(mode):
         [InlineKeyboardButton("📋 Menu", callback_data='prediction_menu')]
     ])
 
-# Send admin notification (to ADMIN_CHAT_ID)
+# Send admin notification
 def send_admin_notification(message):
     try:
-        if ADMIN_CHAT_ID:
-            bot.send_message(chat_id=int(ADMIN_CHAT_ID), text=f"🤖 BOT NOTIFICATION\n{message}\n\n📊 STATS:\nTotal Users: {stats['total']}\nRegistered: {stats['registered']}\nDeposited: {stats['deposited']}")
+        if ADMIN_CHAT_ID and bot:
+            bot.send_message(
+                chat_id=int(ADMIN_CHAT_ID), 
+                text=f"🤖 BOT NOTIFICATION\n{message}\n\n📊 STATS:\nTotal Users: {stats['total']}\nRegistered: {stats['registered']}\nDeposited: {stats['deposited']}"
+            )
     except Exception as e:
         logger.exception("Admin notification failed: %s", e)
 
 # /start handler
 def start(update: Update, context):
+    if not bot:
+        return
+    
     chat_id = update.effective_chat.id
     user = update.effective_user
     user_id = str(user.id)
@@ -235,12 +252,29 @@ def start(update: Update, context):
 
     lang = users[user_id]["language"]
     caption = f"{languages[lang]['step1']}\n\n{languages[lang]['mustNew']}\n\n{languages[lang]['instructions']}"
-    # registration image from your JS
     reg_image = "https://i.postimg.cc/4Nh2kPnv/Picsart-25-10-16-14-41-43-751.jpg"
-    bot.send_photo(chat_id=chat_id, photo=reg_image, caption=caption, reply_markup=register_keyboard())
+    
+    try:
+        bot.send_photo(
+            chat_id=chat_id, 
+            photo=reg_image, 
+            caption=caption, 
+            reply_markup=register_keyboard()
+        )
+    except Exception as e:
+        logger.error(f"Failed to send start message: {e}")
+        # Fallback to text message
+        bot.send_message(
+            chat_id=chat_id,
+            text=f"{caption}\n\n[Image: Registration Guide]",
+            reply_markup=register_keyboard()
+        )
 
 # /language handler
 def language_cmd(update: Update, context):
+    if not bot:
+        return
+        
     user_id = str(update.effective_user.id)
     lang = users.get(user_id, {}).get("language", "en")
     keyboard = InlineKeyboardMarkup([
@@ -250,29 +284,50 @@ def language_cmd(update: Update, context):
         [InlineKeyboardButton(f"{languages['ur']['flag']} {languages['ur']['name']}", callback_data='lang_ur')],
         [InlineKeyboardButton(f"{languages['ne']['flag']} {languages['ne']['name']}", callback_data='lang_ne')],
     ])
-    bot.send_message(chat_id=update.effective_chat.id, text=languages[lang]['selectLanguage'], reply_markup=keyboard)
+    bot.send_message(
+        chat_id=update.effective_chat.id, 
+        text=languages[lang]['selectLanguage'], 
+        reply_markup=keyboard
+    )
 
 # Callback query handler
 def callback_handler(update: Update, context):
+    if not bot:
+        return
+        
     query = update.callback_query
     data = query.data
     user_id = str(query.from_user.id)
     user = users.get(user_id)
+    
     if not user:
         users[user_id] = {"language": "en", "predictionsUsed": 0}
         user = users[user_id]
+        
     lang = user.get("language", "en")
 
     try:
         if data.startswith("lang_"):
             new_lang = data.split("_", 1)[1]
             user["language"] = new_lang
-            bot.edit_message_text(chat_id=query.message.chat_id, message_id=query.message.message_id, text=languages[new_lang]["welcome"])
+            bot.edit_message_text(
+                chat_id=query.message.chat_id, 
+                message_id=query.message.message_id, 
+                text=languages[new_lang]["welcome"]
+            )
             caption = f"{languages[new_lang]['step1']}\n\n{languages[new_lang]['mustNew']}\n\n{languages[new_lang]['instructions']}"
-            bot.send_photo(chat_id=query.message.chat_id, photo="https://i.postimg.cc/4Nh2kPnv/Picsart-25-10-16-14-41-43-751.jpg", caption=caption, reply_markup=register_keyboard())
+            bot.send_photo(
+                chat_id=query.message.chat_id, 
+                photo="https://i.postimg.cc/4Nh2kPnv/Picsart-25-10-16-14-41-43-751.jpg", 
+                caption=caption, 
+                reply_markup=register_keyboard()
+            )
 
         elif data == "check_registration":
-            bot.send_message(chat_id=query.message.chat_id, text=f"{languages[lang]['enterPlayerId']}\n\n{languages[lang]['howToFind']}\n\n{languages[lang]['enterPlayerIdNow']}")
+            bot.send_message(
+                chat_id=query.message.chat_id, 
+                text=f"{languages[lang]['enterPlayerId']}\n\n{languages[lang]['howToFind']}\n\n{languages[lang]['enterPlayerIdNow']}"
+            )
 
         elif data.startswith("mode_"):
             mode = data.split("_", 1)[1]
@@ -284,21 +339,35 @@ def callback_handler(update: Update, context):
             mode = data.split("_", 1)[1]
             user["predictionsUsed"] = user.get("predictionsUsed", 0) + 1
             if user["predictionsUsed"] >= 20:
-                bot.send_message(chat_id=query.message.chat_id, text=languages[lang]["limitReached"], reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("🕐 Try Tomorrow", callback_data='try_tomorrow')],
-                    [InlineKeyboardButton("💳 Deposit Again", url=AFFILIATE_LINK)]
-                ]))
+                bot.send_message(
+                    chat_id=query.message.chat_id, 
+                    text=languages[lang]["limitReached"], 
+                    reply_markup=InlineKeyboardMarkup([
+                        [InlineKeyboardButton("🕐 Try Tomorrow", callback_data='try_tomorrow')],
+                        [InlineKeyboardButton("💳 Deposit Again", url=AFFILIATE_LINK)]
+                    ])
+                )
             else:
                 send_prediction(query.message.chat_id, user_id, mode, user["predictionsUsed"] + 1)
 
         elif data == "prediction_menu":
-            bot.send_message(chat_id=query.message.chat_id, text=languages[lang]["congratulations"], reply_markup=prediction_menu_keyboard())
+            bot.send_message(
+                chat_id=query.message.chat_id, 
+                text=languages[lang]["congratulations"], 
+                reply_markup=prediction_menu_keyboard()
+            )
 
         elif data == "check_deposit":
-            bot.send_message(chat_id=query.message.chat_id, text=f"{languages[lang]['enterPlayerId']}\n\n{languages[lang]['howToFind']}\n\n{languages[lang]['enterPlayerIdNow']}")
+            bot.send_message(
+                chat_id=query.message.chat_id, 
+                text=f"{languages[lang]['enterPlayerId']}\n\n{languages[lang]['howToFind']}\n\n{languages[lang]['enterPlayerIdNow']}"
+            )
 
         elif data == "try_tomorrow":
-            bot.send_message(chat_id=query.message.chat_id, text="⏰ Come back tomorrow for more predictions!")
+            bot.send_message(
+                chat_id=query.message.chat_id, 
+                text="⏰ Come back tomorrow for more predictions!"
+            )
 
         bot.answer_callback_query(callback_query_id=query.id)
     except Exception as e:
@@ -310,23 +379,41 @@ def callback_handler(update: Update, context):
 
 # Send prediction helper
 def send_prediction(chat_id, user_id, mode, step):
+    if not bot:
+        return
+        
     user = users.get(user_id, {"language": "en"})
     lang = user.get("language", "en")
     mode_images = predictionImages.get(mode, [])
+    
     if not mode_images:
         bot.send_message(chat_id=chat_id, text="No images available for this mode.")
         return
+        
     import random
     random_image = random.choice(mode_images)
     caption = f"👆 BET 👆\n\n(\"CASH OUT\" at this value or before)\nACCURACY:- {random_image['accuracy']}\n\nStep: {step}/20"
+    
     try:
-        bot.send_photo(chat_id=chat_id, photo=random_image["url"], caption=caption, reply_markup=next_menu_keyboard(mode))
+        bot.send_photo(
+            chat_id=chat_id, 
+            photo=random_image["url"], 
+            caption=caption, 
+            reply_markup=next_menu_keyboard(mode)
+        )
     except Exception as e:
         logger.exception("Failed to send photo, sending text fallback: %s", e)
-        bot.send_message(chat_id=chat_id, text=f"🎯 {mode.upper()} MODE\n\n{caption}", reply_markup=next_menu_keyboard(mode))
+        bot.send_message(
+            chat_id=chat_id, 
+            text=f"🎯 {mode.upper()} MODE\n\n{caption}", 
+            reply_markup=next_menu_keyboard(mode)
+        )
 
 # Message handler - handles numeric Player ID input
 def message_handler(update: Update, context):
+    if not bot:
+        return
+        
     text = update.message.text.strip() if update.message.text else ""
     if text.isdigit():
         user_id = str(update.message.from_user.id)
@@ -334,12 +421,22 @@ def message_handler(update: Update, context):
         user = users.setdefault(user_id, {"language": "en"})
         lang = user.get("language", "en")
         user["playerId"] = playerId
-        loading = bot.send_message(chat_id=update.effective_chat.id, text=languages[lang]["checking"])
+        
+        loading = bot.send_message(
+            chat_id=update.effective_chat.id, 
+            text=languages[lang]["checking"]
+        )
+        
         try:
             registration = postbackData["registrations"].get(playerId)
             deposit = postbackData["deposits"].get(playerId)
             approved = postbackData["approvedDeposits"].get(playerId)
-            bot.delete_message(chat_id=update.effective_chat.id, message_id=loading.message_id)
+            
+            bot.delete_message(
+                chat_id=update.effective_chat.id, 
+                message_id=loading.message_id
+            )
+            
             if registration and deposit:
                 if not user.get("registered"):
                     user["registered"] = True
@@ -347,31 +444,52 @@ def message_handler(update: Update, context):
                     stats["registered"] += 1
                     stats["deposited"] += 1
                     send_admin_notification(f"✅ USER REGISTERED & DEPOSITED\nUser ID: {user_id}\nPlayer ID: {playerId}\nAmount: {deposit.get('amount','N/A')}")
-                bot.send_message(chat_id=update.effective_chat.id, text=f"{languages[lang]['verified']}\n\n{languages[lang]['congratulations']}", reply_markup=prediction_menu_keyboard())
+                
+                bot.send_message(
+                    chat_id=update.effective_chat.id, 
+                    text=f"{languages[lang]['verified']}\n\n{languages[lang]['congratulations']}", 
+                    reply_markup=prediction_menu_keyboard()
+                )
             elif registration and not deposit:
                 if not user.get("registered"):
                     user["registered"] = True
                     stats["registered"] += 1
                     send_admin_notification(f"✅ USER REGISTERED\nUser ID: {user_id}\nPlayer ID: {playerId}")
-                bot.send_message(chat_id=update.effective_chat.id, text=languages[lang]["registeredNoDeposit"], reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("💳 Deposit", url=AFFILIATE_LINK)],
-                    [InlineKeyboardButton("🔍 Check Deposit", callback_data='check_deposit')]
-                ]))
+                
+                bot.send_message(
+                    chat_id=update.effective_chat.id, 
+                    text=languages[lang]["registeredNoDeposit"], 
+                    reply_markup=InlineKeyboardMarkup([
+                        [InlineKeyboardButton("💳 Deposit", url=AFFILIATE_LINK)],
+                        [InlineKeyboardButton("🔍 Check Deposit", callback_data='check_deposit')]
+                    ])
+                )
             else:
-                bot.send_message(chat_id=update.effective_chat.id, text=languages[lang]["notRegistered"], reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("📲 Register Now", url=AFFILIATE_LINK)]
-                ]))
+                bot.send_message(
+                    chat_id=update.effective_chat.id, 
+                    text=languages[lang]["notRegistered"], 
+                    reply_markup=InlineKeyboardMarkup([
+                        [InlineKeyboardButton("📲 Register Now", url=AFFILIATE_LINK)]
+                    ])
+                )
         except Exception as e:
             logger.exception("Verification error: %s", e)
             try:
-                bot.delete_message(chat_id=update.effective_chat.id, message_id=loading.message_id)
+                bot.delete_message(
+                    chat_id=update.effective_chat.id, 
+                    message_id=loading.message_id
+                )
             except:
                 pass
-            bot.send_message(chat_id=update.effective_chat.id, text="❌ Verification failed. Please try again.", reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("🔄 Try Again", callback_data='check_registration')]
-            ]))
+            bot.send_message(
+                chat_id=update.effective_chat.id, 
+                text="❌ Verification failed. Please try again.", 
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("🔄 Try Again", callback_data='check_registration')]
+                ])
+            )
 
-# --- Admin commands for manual prediction sending ---
+# --- Admin commands ---
 def is_admin(user_id):
     if not ADMIN_CHAT_ID:
         return False
@@ -380,13 +498,15 @@ def is_admin(user_id):
     except:
         return False
 
-# /sendphoto <mode> <image_index (optional)> <caption text after args...>
-# Example: /sendphoto easy 3 Today's prediction: Team A vs Team B - Team A
 def admin_sendphoto(update: Update, context):
+    if not bot:
+        return
+        
     user_id = update.effective_user.id
     if not is_admin(user_id):
         bot.send_message(chat_id=update.effective_chat.id, text="Unauthorized")
         return
+        
     args = context.args or []
     if len(args) < 1:
         bot.send_message(chat_id=update.effective_chat.id, text="Usage: /sendphoto <mode> [image_index] <caption...>")
@@ -396,7 +516,6 @@ def admin_sendphoto(update: Update, context):
     image_index = None
     caption_text = ""
 
-    # detect if second arg is integer index
     if len(args) >= 2 and args[1].isdigit():
         image_index = int(args[1])
         caption_text = " ".join(args[2:]) if len(args) > 2 else ""
@@ -409,7 +528,6 @@ def admin_sendphoto(update: Update, context):
         return
 
     if image_index is None:
-        # pick random
         import random
         img = random.choice(images)
     else:
@@ -419,23 +537,33 @@ def admin_sendphoto(update: Update, context):
         img = images[image_index]
 
     caption = caption_text or f"👆 BET 👆\nACCURACY:- {img['accuracy']}"
-    # send to admin chat confirmation
-    bot.send_photo(chat_id=update.effective_chat.id, photo=img["url"], caption=f"Preview:\n\n{caption}")
+    
+    bot.send_photo(
+        chat_id=update.effective_chat.id, 
+        photo=img["url"], 
+        caption=f"Preview:\n\n{caption}"
+    )
 
-    # store last admin prediction in memory for broadcast
     context.chat_data['last_admin_prediction'] = {"photo": img["url"], "caption": caption}
-    bot.send_message(chat_id=update.effective_chat.id, text="Saved as last prediction. Use /broadcast to send to all users.")
+    bot.send_message(
+        chat_id=update.effective_chat.id, 
+        text="Saved as last prediction. Use /broadcast to send to all users."
+    )
 
-# /broadcast - send last saved admin prediction to all started users
 def admin_broadcast(update: Update, context):
+    if not bot:
+        return
+        
     user_id = update.effective_user.id
     if not is_admin(user_id):
         bot.send_message(chat_id=update.effective_chat.id, text="Unauthorized")
         return
+        
     last = context.chat_data.get('last_admin_prediction')
     if not last:
         bot.send_message(chat_id=update.effective_chat.id, text="No saved prediction. Use /sendphoto to save a prediction first.")
         return
+        
     sent = 0
     failed = 0
     for uid in list(users.keys()):
@@ -444,14 +572,16 @@ def admin_broadcast(update: Update, context):
             sent += 1
         except Exception as e:
             failed += 1
-            # if blocked, remove user from list
             try:
                 del users[uid]
             except:
                 pass
-    bot.send_message(chat_id=update.effective_chat.id, text=f"Broadcast done. Sent: {sent}, Failed: {failed}")
+                
+    bot.send_message(
+        chat_id=update.effective_chat.id, 
+        text=f"Broadcast done. Sent: {sent}, Failed: {failed}"
+    )
 
-# /stats - admin or public stats endpoint
 def stats_cmd(update: Update, context):
     payload = {
         "botStats": stats,
@@ -468,10 +598,12 @@ def stats_cmd(update: Update, context):
     }
     update.message.reply_text(str(payload))
 
-# --- Flask routes for Telegram webhook, postbacks and verification ---
-# webhook endpoint for telegram (set as webhook URL)
+# --- Flask routes ---
 @app.route('/webhook', methods=['POST'])
 def webhook():
+    if not bot:
+        return "Bot not initialized", 500
+        
     try:
         update = Update.de_json(request.get_json(force=True), bot)
         dispatcher.process_update(update)
@@ -479,13 +611,14 @@ def webhook():
         logger.exception("Failed to process update: %s", e)
     return "OK"
 
-# 1Win Postback route
 @app.route('/lwin-postback', methods=['GET'])
 def lwin_postback():
     player_id = request.args.get("player_id")
     status = request.args.get("status")
     amount = request.args.get("amount")
+    
     logger.info("📥 1Win Postback: %s", dict(player_id=player_id, status=status, amount=amount))
+    
     if status == "registration":
         postbackData["registrations"][player_id] = {
             "player_id": player_id,
@@ -513,14 +646,15 @@ def lwin_postback():
             "approvedAt": datetime.utcnow().isoformat()
         }
         logger.info("🎉 Deposit approved: %s Amount: %s", player_id, amount)
+        
     return jsonify(success=True, player_id=player_id, status=status)
 
-# verify player
 @app.route('/verify-player/<playerId>', methods=['GET'])
 def verify_player(playerId):
     registration = postbackData["registrations"].get(playerId)
     deposit = postbackData["deposits"].get(playerId)
     approved = postbackData["approvedDeposits"].get(playerId)
+    
     response = {
         "isRegistered": bool(registration),
         "hasDeposit": bool(deposit),
@@ -529,14 +663,15 @@ def verify_player(playerId):
         "depositData": deposit,
         "approvedData": approved
     }
+    
     logger.info("🔍 Player verification: %s", response)
     return jsonify(response)
 
-# manual webhook setup
 @app.route('/setup-webhook', methods=['GET'])
 def setup_webhook():
-    if not VERCEL_URL:
-        return jsonify(success=False, error="VERCEL_URL not set"), 400
+    if not VERCEL_URL or not bot:
+        return jsonify(success=False, error="VERCEL_URL or bot not set"), 400
+        
     try:
         webhook_url = f"{VERCEL_URL}/webhook"
         bot.set_webhook(webhook_url)
@@ -545,7 +680,6 @@ def setup_webhook():
         logger.exception("Webhook setup error: %s", e)
         return jsonify(success=False, error=str(e)), 500
 
-# stats endpoint
 @app.route('/stats', methods=['GET'])
 def stats_route():
     payload = {
@@ -563,7 +697,6 @@ def stats_route():
     }
     return jsonify(payload)
 
-# home
 @app.route('/', methods=['GET'])
 def home():
     return jsonify({
@@ -579,18 +712,25 @@ def home():
         ]
     })
 
-# Setup telegram dispatcher (for webhook processing)
-dispatcher = Dispatcher(bot, None, workers=0, use_context=True)
-dispatcher.add_handler(CommandHandler("start", start))
-dispatcher.add_handler(CommandHandler("language", language_cmd))
-dispatcher.add_handler(CallbackQueryHandler(callback_handler))
-dispatcher.add_handler(CommandHandler("sendphoto", admin_sendphoto, pass_args=True))
-dispatcher.add_handler(CommandHandler("broadcast", admin_broadcast))
-dispatcher.add_handler(CommandHandler("stats", stats_cmd))
-dispatcher.add_handler(MessageHandler(Filters.text & (~Filters.command), message_handler))
+# Initialize dispatcher only if bot is available
+if bot:
+    dispatcher = Dispatcher(bot, None, workers=0, use_context=True)
+    dispatcher.add_handler(CommandHandler("start", start))
+    dispatcher.add_handler(CommandHandler("language", language_cmd))
+    dispatcher.add_handler(CallbackQueryHandler(callback_handler))
+    dispatcher.add_handler(CommandHandler("sendphoto", admin_sendphoto, pass_args=True))
+    dispatcher.add_handler(CommandHandler("broadcast", admin_broadcast))
+    dispatcher.add_handler(CommandHandler("stats", stats_cmd))
+    dispatcher.add_handler(MessageHandler(Filters.text & (~Filters.command), message_handler))
+else:
+    dispatcher = None
+    logger.error("Bot not initialized - dispatcher not created")
 
-# Scheduler for daily motivational messages at 09:00 (server timezone)
+# Scheduler for daily motivational messages
 def send_daily_motivation():
+    if not bot:
+        return
+        
     messages = {
         "en": "You're missing yours chance to win big /start to get Prediction now",
         "hi": "आप बड़ी जीत का मौका गंवा रहे हैं /start से अभी भविष्यवाणी प्राप्त करें",
@@ -598,6 +738,7 @@ def send_daily_motivation():
         "ur": "آپ بڑی جیت کا موقع کھو رہے ہیں /start سے ابھی پیشن گوئی حاصل کریں",
         "ne": "तपाईं ठूलो जितको अवसर गुमाउँदै हुनुहुन्छ /start ले अहिले भविष्यवाणी प्राप्त गर्नुहोस्"
     }
+    
     for uid, u in list(users.items()):
         try:
             lang = u.get("language", "en")
@@ -609,10 +750,15 @@ def send_daily_motivation():
             except:
                 pass
 
-scheduler = BackgroundScheduler()
-# this cron triggers at 09:00 server time daily
-scheduler.add_job(send_daily_motivation, 'cron', hour=9, minute=0)
-scheduler.start()
+# Initialize scheduler only in production
+if VERCEL_URL:
+    try:
+        scheduler = BackgroundScheduler()
+        scheduler.add_job(send_daily_motivation, 'cron', hour=9, minute=0)
+        scheduler.start()
+        logger.info("Scheduler started successfully")
+    except Exception as e:
+        logger.error("Failed to start scheduler: %s", e)
 
 # Run server
 if __name__ == "__main__":

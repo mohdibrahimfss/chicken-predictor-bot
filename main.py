@@ -2,6 +2,7 @@ import os
 import logging
 from datetime import datetime
 import random
+import requests # Used for the direct Webhook setup fix
 
 # External Libraries
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
@@ -22,7 +23,7 @@ BOT_TOKEN = os.environ.get("BOT_TOKEN")
 ADMIN_CHAT_ID = os.environ.get("ADMIN_CHAT_ID")
 AFFILIATE_LINK = os.environ.get("AFFILIATE_LINK", "https://mostbet-king.com/5rTs")
 
-# YOUR DEPLOYED DOMAIN NAME (HARDCODED FIX FOR 500 ERROR)
+# YOUR DEPLOYED DOMAIN NAME (FIX for 500 error)
 # NOTE: Agar aapka Vercel domain badalta hai, toh yahan change karna hoga.
 VERCEL_DOMAIN = "chicken-predictor-bot-py-new.vercel.app" 
 
@@ -107,7 +108,7 @@ languages = {
         "congratulations": "مبارک ہو، براہ کرم کھیلنے کے لیے اپنا گیم موڈ منتخب کریں:",
         "notRegistered": "❌ معذرت، آپ رجسٹرڈ نہیں ہیں!\n\nبراہ کرم پہلے REGISTER بٹن پر کلک کریں اور ہمارے affiliate link کا استعمال کرتے ہوئے رجسٹریشن مکمل کریں\n\nکامیاب رجسٹریشن کے بعد واپس آئیں اور اپنا Player ID درج کریں",
         "registeredNoDeposit": "🎉 بہت اچھا، آپ نے کامیابی کے ساتھ رجسٹریشن مکمل کر لی ہے!\n\n✅ آپ کا اکاؤنٹ بوٹ کے ساتھ sync ہو گیا ہے\n\n💴 سگنلز تک رسائی حاصل کرنے کے لیے، اپنے اکاؤنٹ میں کم از کم 600₹ یا $6 جمع کریں\n\n🕹️ اپنے اکاؤنٹ کو کامیابی سے ری چارج کرنے کے بعد، CHECK DEPOSIT بٹن پر کلک کریں اور رسائی حاصل کریں",
-        "limitReached": "آپ اپنی حد تک پہنچ گئے ہیں، براہ کرم کل دوبارہ کوشش کریں یا جاری رکھنے کے لیے دوبارہ کم از کم 400₹ یا 4$ جمع کریں",
+        "limitReached": "آپ اپنی حد تک پہنچ گئے ہیں، براہ کرم کل دوبارہ کوشش کریں یا جاری رکھنے کے لیے دوبارہ کم از از 400₹ یا 4$ جمع کریں",
         "checking": "🔍 آپ کی رجسٹریشن چیک کی جا رہی ہے...",
         "verified": "✅ تصدیق کامیاب!",
         "welcomeBack": "👋 واپسی پر خوش آمدید!"
@@ -218,10 +219,17 @@ def get_user_data(user_id):
 
 async def send_admin_notification(application, message):
     """Sends a notification to the admin chat ID."""
+    # Ensure ADMIN_CHAT_ID is treated as a number, or skip if invalid
     if not ADMIN_CHAT_ID:
         logger.warning("ADMIN_CHAT_ID not set. Skipping admin notification.")
         return
-
+        
+    try:
+        chat_id = int(ADMIN_CHAT_ID)
+    except ValueError:
+        logger.error(f"ADMIN_CHAT_ID is not a valid number/ID: {ADMIN_CHAT_ID}. Skipping.")
+        return
+        
     notification_text = (
         f"🤖 BOT NOTIFICATION\n{message}\n\n"
         f"📊 STATS:\nTotal Users: {stats['total']}\n"
@@ -230,7 +238,7 @@ async def send_admin_notification(application, message):
     )
     try:
         await application.bot.send_message(
-            chat_id=ADMIN_CHAT_ID, text=notification_text
+            chat_id=chat_id, text=notification_text
         )
     except Exception as e:
         logger.error(f"Admin notification failed: {e}")
@@ -558,26 +566,48 @@ async def webhook():
         return jsonify({"status": "ok"})
     return "Method Not Allowed", 405
 
-# FIX FOR 500 ERROR: Using VERCEL_DOMAIN directly
+# FIX FOR 500 ERROR: Using simple HTTP Request to set webhook
 @app.route("/setup-webhook", methods=["GET"])
 async def setup_webhook_route():
-    """Manual webhook setup route."""
+    """Manual webhook setup route using simple HTTP request."""
     
     # Use the hardcoded domain for webhook URL
-    webhook_url = f"https://{VERCEL_DOMAIN}/webhook"
+    WEBHOOK_URL = f"https://{VERCEL_DOMAIN}/webhook"
+    
+    if not BOT_TOKEN:
+         return jsonify({"success": False, "error": "BOT_TOKEN is missing from Vercel Environment Variables."}), 500
+
+    TELEGRAM_API_URL = f"https://api.telegram.org/bot{BOT_TOKEN}/setWebhook"
+    
+    params = {'url': WEBHOOK_URL}
     
     try:
-        # Check if BOT_TOKEN was loaded correctly
-        if not application.bot._token:
-             # This error will show up if BOT_TOKEN is missing in Vercel settings
-             return jsonify({"success": False, "error": "BOT_TOKEN is missing or invalid. Check Environment Variables."}), 500
-             
-        await application.bot.set_webhook(url=webhook_url)
-        logger.info(f"✅ Webhook set: {webhook_url}")
-        return jsonify({"success": True, "message": "Webhook set successfully"})
+        # Use simple requests library to call Telegram API
+        response = requests.get(TELEGRAM_API_URL, params=params)
+        response_data = response.json()
+        
+        if response.status_code == 200 and response_data.get("ok"):
+            logger.info(f"✅ Webhook set successfully: {WEBHOOK_URL}")
+            return jsonify({
+                "success": True, 
+                "message": "Webhook set successfully via direct API call.",
+                "api_response": response_data
+            })
+        else:
+            logger.error(f"❌ Webhook API Error: {response_data}")
+            # If Telegram gives an error (like 401 Unauthorized), we show it.
+            return jsonify({
+                "success": False, 
+                "error": "Telegram API failed to set webhook (Check BOT_TOKEN).", 
+                "api_response": response_data
+            }), 500
+            
+    except requests.exceptions.RequestException as e:
+        logger.error(f"❌ Network/Connection Error: {e}")
+        return jsonify({"success": False, "error": f"Network/Connection error during setup: {str(e)}"}), 500
     except Exception as e:
-        logger.error(f"❌ Webhook error: {e}")
-        return jsonify({"success": False, "error": str(e)}), 500
+        logger.error(f"❌ General Error during setup: {e}")
+        return jsonify({"success": False, "error": f"General internal error: {str(e)}"}), 500
 
 @app.route("/", methods=["GET"])
 def home_route():

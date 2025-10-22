@@ -1,7 +1,10 @@
 import os
 import logging
-from flask import Flask, request, jsonify
 import random
+from flask import Flask, request, jsonify
+import telegram
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import Dispatcher, CommandHandler, CallbackQueryHandler, MessageHandler, Filters
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -13,7 +16,24 @@ app = Flask(__name__)
 BOT_TOKEN = os.environ.get('BOT_TOKEN')
 ADMIN_CHAT_ID = os.environ.get('ADMIN_CHAT_ID')
 VERCEL_URL = os.environ.get('VERCEL_URL')
-AFFILIATE_LINK = os.environ.get('AFFILIATE_LINK', 'https://mostbet-king.com/5w4F')
+AFFILIATE_LINK = os.environ.get('AFFILIATE_LINK', 'https://mostbet-king.com/5rTs')
+
+logger.info(f"🔧 Environment Check - BOT_TOKEN: {'SET' if BOT_TOKEN else 'MISSING'}")
+
+# Initialize bot
+bot = None
+dispatcher = None
+
+try:
+    if BOT_TOKEN:
+        bot = telegram.Bot(token=BOT_TOKEN)
+        bot_info = bot.get_me()
+        logger.info(f"✅ Bot initialized: {bot_info.username}")
+        dispatcher = Dispatcher(bot, None, workers=0, use_context=True)
+    else:
+        logger.error("❌ BOT_TOKEN missing")
+except Exception as e:
+    logger.error(f"❌ Bot init failed: {e}")
 
 # Storage
 users = {}
@@ -177,111 +197,242 @@ predictionImages = {
  ]
 }
 
-# Game modes with buttons
-game_modes = {
-    "easy": "🎯 Easy",
-    "medium": "⚡ Medium", 
-    "hard": "🔥 Hard",
-    "hardcore": "💀 Hardcore"
-}
+# Keyboards
+def register_keyboard():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("📲 Register", url=AFFILIATE_LINK)],
+        [InlineKeyboardButton("🔍 Check Registration", callback_data='check_registration')]
+    ])
 
+def language_keyboard():
+    buttons = []
+    for code, lang in languages.items():
+        buttons.append([InlineKeyboardButton(f"{lang['flag']} {lang['name']}", callback_data=f'lang_{code}')])
+    return InlineKeyboardMarkup(buttons)
+
+def prediction_menu_keyboard():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("🎯 Easy", callback_data='mode_easy')],
+        [InlineKeyboardButton("⚡ Medium", callback_data='mode_medium')],
+        [InlineKeyboardButton("🔥 Hard", callback_data='mode_hard')],
+        [InlineKeyboardButton("💀 Hardcore", callback_data='mode_hardcore')],
+    ])
+
+def next_menu_keyboard(mode):
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("➡️ Next", callback_data=f'next_{mode}')],
+        [InlineKeyboardButton("📋 Menu", callback_data='prediction_menu')]
+    ])
+
+# Bot Handlers
+def start(update, context):
+    if not bot: return
+    
+    user_id = update.effective_user.id
+    chat_id = update.effective_chat.id
+    
+    logger.info(f"📨 Start from user {user_id}")
+    
+    if str(user_id) not in users:
+        users[str(user_id)] = {"language": "en", "predictionsUsed": 0}
+        stats["total"] += 1
+    
+    user = users[str(user_id)]
+    lang = user["language"]
+    
+    try:
+        caption = f"{languages[lang]['step1']}\n\n{languages[lang]['mustNew']}\n\n{languages[lang]['instructions']}"
+        
+        bot.send_photo(
+            chat_id=chat_id,
+            photo="https://i.postimg.cc/4Nh2kPnv/Picsart-25-10-16-14-41-43-751.jpg",
+            caption=caption,
+            reply_markup=register_keyboard()
+        )
+        logger.info(f"✅ Start sent to {user_id}")
+    except Exception as e:
+        logger.error(f"❌ Start failed: {e}")
+
+def language_cmd(update, context):
+    if not bot: return
+    bot.send_message(
+        chat_id=update.effective_chat.id,
+        text="Select your language:",
+        reply_markup=language_keyboard()
+    )
+
+def callback_handler(update, context):
+    if not bot: return
+    
+    query = update.callback_query
+    data = query.data
+    user_id = str(query.from_user.id)
+    
+    if user_id not in users:
+        users[user_id] = {"language": "en", "predictionsUsed": 0}
+    
+    user = users[user_id]
+    lang = user["language"]
+    
+    try:
+        if data.startswith("lang_"):
+            new_lang = data.split("_")[1]
+            user["language"] = new_lang
+            query.edit_message_text(text=languages[new_lang]["welcome"])
+            
+        elif data == "check_registration":
+            bot.send_message(
+                chat_id=query.message.chat_id,
+                text=f"{languages[lang]['enterPlayerId']}\n\n{languages[lang]['howToFind']}"
+            )
+            
+        elif data.startswith("mode_"):
+            mode = data.split("_")[1]
+            user["currentMode"] = mode
+            user["predictionsUsed"] = 0
+            send_prediction(query.message.chat_id, user_id, mode, 1)
+            
+        elif data.startswith("next_"):
+            mode = data.split("_")[1]
+            user["predictionsUsed"] += 1
+            
+            if user["predictionsUsed"] >= 20:
+                bot.send_message(
+                    chat_id=query.message.chat_id,
+                    text=languages[lang]["limitReached"]
+                )
+            else:
+                send_prediction(query.message.chat_id, user_id, mode, user["predictionsUsed"] + 1)
+                
+        elif data == "prediction_menu":
+            bot.send_message(
+                chat_id=query.message.chat_id,
+                text=languages[lang]["congratulations"],
+                reply_markup=prediction_menu_keyboard()
+            )
+            
+        query.answer()
+    except Exception as e:
+        logger.error(f"❌ Callback error: {e}")
+
+def send_prediction(chat_id, user_id, mode, step):
+    if not bot: return
+    
+    user = users.get(user_id, {})
+    lang = user.get("language", "en")
+    images = predictionImages.get(mode, [])
+    
+    if not images:
+        bot.send_message(chat_id=chat_id, text="No predictions available")
+        return
+        
+    img = random.choice(images)
+    caption = f"👆 BET 👆\n\n(\"CASH OUT\" at this value or before)\nACCURACY:- {img['accuracy']}\n\nStep: {step}/20"
+    
+    try:
+        bot.send_photo(
+            chat_id=chat_id,
+            photo=img["url"],
+            caption=caption,
+            reply_markup=next_menu_keyboard(mode)
+        )
+    except Exception as e:
+        bot.send_message(
+            chat_id=chat_id,
+            text=f"🎯 {mode.upper()} MODE\n\n{caption}",
+            reply_markup=next_menu_keyboard(mode)
+        )
+
+def message_handler(update, context):
+    if not bot: return
+    
+    text = update.message.text.strip()
+    if text.isdigit():
+        user_id = str(update.message.from_user.id)
+        player_id = text
+        
+        if user_id not in users:
+            users[user_id] = {"language": "en", "predictionsUsed": 0}
+            
+        user = users[user_id]
+        lang = user.get("language", "en")
+        
+        # Simulate verification
+        registration = postbackData["registrations"].get(player_id)
+        deposit = postbackData["deposits"].get(player_id)
+        
+        if registration and deposit:
+            user["registered"] = True
+            user["deposited"] = True
+            bot.send_message(
+                chat_id=update.effective_chat.id,
+                text=f"{languages[lang]['verified']}\n\n{languages[lang]['congratulations']}",
+                reply_markup=prediction_menu_keyboard()
+            )
+        elif registration:
+            user["registered"] = True
+            bot.send_message(
+                chat_id=update.effective_chat.id,
+                text=languages[lang]["registeredNoDeposit"]
+            )
+        else:
+            bot.send_message(
+                chat_id=update.effective_chat.id,
+                text=languages[lang]["notRegistered"],
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("📲 Register Now", url=AFFILIATE_LINK)]
+                ])
+            )
+
+# Add handlers
+if dispatcher:
+    dispatcher.add_handler(CommandHandler("start", start))
+    dispatcher.add_handler(CommandHandler("language", language_cmd))
+    dispatcher.add_handler(CallbackQueryHandler(callback_handler))
+    dispatcher.add_handler(MessageHandler(Filters.text & ~Filters.command, message_handler))
+    logger.info("✅ All handlers added")
+
+# Flask routes
 @app.route('/')
 def home():
-    return '''
-    <html>
-        <head><title>Chicken Predictor Bot</title></head>
-        <body style="font-family: Arial, sans-serif; padding: 20px;">
-            <h1>🚀 Chicken Predictor Bot - FULLY WORKING!</h1>
-            <p><strong>✅ Status:</strong> <span style="color: green;">ACTIVE & RUNNING</span></p>
-            
-            <h2>📊 Features:</h2>
-            <ul>
-                <li>✅ 5 Languages (English, Hindi, Bengali, Urdu, Nepali)</li>
-                <li>✅ 4 Game Modes with ALL Prediction Images</li>
-                <li>✅ Accuracy Display for Each Prediction</li>
-                <li>✅ 1Win Postback Integration</li>
-                <li>✅ Player Verification System</li>
-                <li>✅ Daily 20 Predictions Limit</li>
-                <li>✅ Mode Selection Buttons</li>
-            </ul>
-            
-            <h2>🎮 Game Modes Available:</h2>
-            <ul>
-                <li>🎯 Easy Mode: ''' + str(len(predictionImages["easy"])) + ''' predictions</li>
-                <li>⚡ Medium Mode: ''' + str(len(predictionImages["medium"])) + ''' predictions</li>
-                <li>🔥 Hard Mode: ''' + str(len(predictionImages["hard"])) + ''' predictions</li>
-                <li>💀 Hardcore Mode: ''' + str(len(predictionImages["hardcore"])) + ''' predictions</li>
-            </ul>
-            
-            <p><strong>📈 Stats:</strong> Total Users: ''' + str(stats["total"]) + ''', Registered: ''' + str(stats["registered"]) + ''', Deposited: ''' + str(stats["deposited"]) + '''</p>
-            
-            <h3>🔗 Test Endpoints:</h3>
-            <ul>
-                <li><a href="/test">/test</a> - Basic functionality test</li>
-                <li><a href="/stats">/stats</a> - Bot statistics</li>
-                <li><a href="/get-prediction/easy">/get-prediction/easy</a> - Sample prediction</li>
-                <li><a href="/setup-webhook">/setup-webhook</a> - Webhook setup</li>
-            </ul>
-        </body>
-    </html>
-    '''
-
-@app.route('/test')
-def test():
     return jsonify({
-        "status": "SUCCESS",
-        "message": "All features are working perfectly!",
-        "features": {
-            "languages": list(languages.keys()),
-            "game_modes": list(game_modes.keys()),
-            "total_images": sum(len(images) for images in predictionImages.values()),
-            "images_per_mode": {mode: len(images) for mode, images in predictionImages.items()}
-        }
-    })
-
-@app.route('/get-prediction/<mode>')
-def get_prediction(mode):
-    if mode not in predictionImages:
-        return jsonify({"error": "Invalid mode"}), 400
-    
-    images = predictionImages[mode]
-    if not images:
-        return jsonify({"error": "No predictions available"}), 400
-    
-    prediction = random.choice(images)
-    return jsonify({
-        "mode": mode,
-        "mode_name": game_modes.get(mode, mode),
-        "image_url": prediction["url"],
-        "accuracy": prediction["accuracy"],
-        "total_predictions": len(images),
-        "message": "👆 BET 👆\n\n(\"CASH OUT\" at this value or before)\nACCURACY:- " + prediction["accuracy"]
-    })
-
-@app.route('/get-mode-images/<mode>')
-def get_mode_images(mode):
-    if mode not in predictionImages:
-        return jsonify({"error": "Invalid mode"}), 400
-    
-    return jsonify({
-        "mode": mode,
-        "mode_name": game_modes.get(mode, mode),
-        "images": predictionImages[mode],
-        "total": len(predictionImages[mode])
+        "status": "🚀 Chicken Predictor Bot - FULLY WORKING!",
+        "bot_initialized": bool(bot),
+        "users": stats["total"],
+        "features": ["5 Languages", "4 Game Modes", "All Images", "Postback System"]
     })
 
 @app.route('/webhook', methods=['POST'])
 def webhook():
-    return jsonify({"status": "webhook_received", "message": "Telegram webhook working"})
+    logger.info("📨 Webhook received")
+    
+    if not bot or not dispatcher:
+        logger.error("❌ Bot/dispatcher not ready")
+        return "Server error", 500
+    
+    try:
+        update = Update.de_json(request.get_json(), bot)
+        dispatcher.process_update(update)
+        return "OK"
+    except Exception as e:
+        logger.error(f"❌ Webhook error: {e}")
+        return "Error", 500
 
 @app.route('/setup-webhook', methods=['GET'])
 def setup_webhook():
-    return jsonify({
-        "success": True,
-        "message": "Webhook setup endpoint ready",
-        "webhook_url": f"{VERCEL_URL}/webhook" if VERCEL_URL else "Set VERCEL_URL env",
-        "bot_token_set": bool(BOT_TOKEN)
-    })
+    if not BOT_TOKEN or not VERCEL_URL:
+        return jsonify({"error": "BOT_TOKEN or VERCEL_URL missing"}), 400
+    
+    try:
+        webhook_url = f"{VERCEL_URL}/webhook"
+        bot.set_webhook(webhook_url)
+        return jsonify({
+            "success": True,
+            "message": f"Webhook set to {webhook_url}",
+            "webhook_info": bot.get_webhook_info().to_dict()
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 @app.route('/lwin-postback', methods=['GET'])
 def lwin_postback():
@@ -289,7 +440,7 @@ def lwin_postback():
     status = request.args.get("status")
     amount = request.args.get("amount")
     
-    logger.info(f"1Win Postback: {player_id}, {status}, {amount}")
+    logger.info(f"📥 1Win Postback: {player_id}, {status}, {amount}")
     
     if status == "registration":
         postbackData["registrations"][player_id] = {"status": "registered"}
@@ -300,59 +451,21 @@ def lwin_postback():
     elif status == "fd_approved":
         postbackData["approvedDeposits"][player_id] = {"status": "approved", "amount": amount}
     
-    return jsonify({
-        "success": True,
-        "player_id": player_id,
-        "status": status,
-        "message": "Postback processed successfully"
-    })
+    return jsonify({"success": True, "player_id": player_id, "status": status})
 
-@app.route('/verify-player/<player_id>')
-def verify_player(player_id):
-    registration = postbackData["registrations"].get(player_id)
-    deposit = postbackData["deposits"].get(player_id)
-    approved = postbackData["approvedDeposits"].get(player_id)
+@app.route('/test-bot', methods=['GET'])
+def test_bot():
+    if not bot or not ADMIN_CHAT_ID:
+        return jsonify({"error": "Bot or ADMIN_CHAT_ID not set"}), 400
     
-    return jsonify({
-        "isRegistered": bool(registration),
-        "hasDeposit": bool(deposit),
-        "isApproved": bool(approved),
-        "player_id": player_id,
-        "registration_data": registration,
-        "deposit_data": deposit,
-        "approved_data": approved
-    })
-
-@app.route('/stats')
-def stats_route():
-    return jsonify({
-        "botStats": stats,
-        "postbackStats": {
-            "registrations": len(postbackData["registrations"]),
-            "deposits": len(postbackData["deposits"]),
-            "approved": len(postbackData["approvedDeposits"])
-        },
-        "predictionStats": {
-            "total_images": sum(len(images) for images in predictionImages.values()),
-            "images_per_mode": {mode: len(images) for mode, images in predictionImages.items()}
-        },
-        "languageStats": {
-            "total_languages": len(languages),
-            "available_languages": list(languages.keys())
-        }
-    })
-
-@app.route('/all-images')
-def all_images():
-    return jsonify({
-        "total_images": sum(len(images) for images in predictionImages.values()),
-        "images_by_mode": {
-            mode: {
-                "count": len(images),
-                "images": images
-            } for mode, images in predictionImages.items()
-        }
-    })
+    try:
+        bot.send_message(
+            chat_id=ADMIN_CHAT_ID,
+            text="🤖 Bot Test Successful!\nAll features are working."
+        )
+        return jsonify({"success": True, "message": "Test message sent"})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 3000))
